@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"shunt/internal/admin"
 )
@@ -540,5 +541,36 @@ func TestViewFillsTheScreen(t *testing.T) {
 	// 40 lines: header 2, blank, lists 4+1+4, rule, footer 2 leave 23 request rows.
 	if v := r.view(); !strings.Contains(v, "model-39") || !strings.Contains(v, "model-17 ") || strings.Contains(v, "model-16 ") {
 		t.Fatalf("requests do not fill the room left:\n%s", v)
+	}
+}
+
+// A config path wider than the terminal keeps the header line to one row:
+// its tail, the file name, is what tells the user which config this is.
+func TestLongConfigPathStaysOnOneLine(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	dir := filepath.Join(t.TempDir(), strings.Repeat("long-dir-name-", 10))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(twoProviders), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := newRigIn(t, dir)
+	lines := strings.Split(ansi.Strip(r.view()), "\n")
+	if !strings.HasPrefix(lines[1], "config: …") || !strings.HasSuffix(lines[1], "/config.toml (toml)") || lines[2] != "" {
+		t.Fatalf("config path is not cut to one line:\n%s", r.view())
+	}
+}
+
+// A form taller than the room left is cut, so the footer with its save and
+// cancel keys stays on screen.
+func TestFormFitsASmallScreen(t *testing.T) {
+	r := newRig(t, twoProviders)
+	const h = 10
+	r.send(tea.WindowSizeMsg{Width: 40, Height: h})
+	r.press("a")
+	lines := strings.Split(r.view(), "\n")
+	if len(lines) != h || !strings.Contains(strings.Join(lines[h-3:], "\n"), "cancel") {
+		t.Fatalf("form does not fit %d lines (%d):\n%s", h, len(lines), r.view())
 	}
 }

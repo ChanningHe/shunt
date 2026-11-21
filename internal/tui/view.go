@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"shunt/internal/admin"
 	"shunt/internal/config"
@@ -59,6 +60,9 @@ func (m *model) render() string {
 	var body []string
 	if m.mode == formMode {
 		body = m.formLines()
+		if avail > 0 && len(body) > avail {
+			body = body[:avail]
+		}
 	} else {
 		body = m.body(avail)
 	}
@@ -80,14 +84,16 @@ func (m *model) header() []string {
 	lines := []string{block.Render(" shunt ") + "  " + m.c.URL() + "  " + state}
 	if m.st != nil && len(m.st.Files) > 0 {
 		f := m.st.Files[0]
-		line := fmt.Sprintf("config: %s (%s)", m.short(f.Path), f.Format)
+		const label = "config: "
+		notes := fmt.Sprintf(" (%s)", f.Format)
 		if !f.Writable {
-			line += " (read-only)"
+			notes += " (read-only)"
 		}
 		if len(m.st.Files) > 1 && !m.st.Files[1].Writable {
-			line += " · keys file read-only"
+			notes += " · keys file read-only"
 		}
-		lines = append(lines, dim.Render(line))
+		path := cutLeft(m.short(f.Path), m.width-lipgloss.Width(label+notes))
+		lines = append(lines, dim.Render(label+path+notes))
 	}
 	if m.st != nil && m.st.LoadError != nil {
 		lines = append(lines, errStyle.Render(badMark+"config error: "+*m.st.LoadError+" (fix the files, then press r)"))
@@ -103,6 +109,16 @@ func (m *model) header() []string {
 			strings.Join(m.routing.drift, "; ")+"); run: shunt on"))
 	}
 	return lines
+}
+
+// cutLeft fits s into width cells by replacing its head with "…". Without
+// room for more than the ellipsis, s is left for wrap to break.
+func cutLeft(s string, width int) string {
+	over := lipgloss.Width(s) - width
+	if over <= 0 || width < 2 {
+		return s
+	}
+	return ansi.TruncateLeft(s, over+1, "…")
 }
 
 // short shows a path under the home directory as ~/...

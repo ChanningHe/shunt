@@ -24,6 +24,9 @@ buildGoModule {
     "-w"
   ];
 
+  # The tests listen on loopback, which the Darwin sandbox denies by default.
+  __darwinAllowLocalNetworking = true;
+
   meta = {
     description = "Local Claude Code router: subagents go to a third-party provider";
     mainProgram = "shunt";

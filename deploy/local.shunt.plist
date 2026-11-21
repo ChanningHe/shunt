@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent. Install:
+    install -m755 shunt ~/.local/bin/shunt
+    cp deploy/local.shunt.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.shunt.plist
+  Configuration lives in ~/.config/shunt (install -d -m700 ~/.config/shunt):
+  config.toml and keys.toml (mode 0600; each key is a literal or a file://
+  path, e.g. to a sops-decrypted secret). After editing the files by hand:
+    launchctl kill HUP gui/$(id -u)/local.shunt
+  launchd does not expand $HOME: replace /Users/USER below with your home.
+  The listen address comes from config.toml (default 127.0.0.1:27486).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.shunt</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/.local/bin/shunt</string>
+    <string>serve</string>
+    <string>--config-dir</string>
+    <string>/Users/USER/.config/shunt</string>
+  </array>
+  <key>StandardErrorPath</key><string>/Users/USER/Library/Logs/shunt.log</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>1</integer>
+</dict>
+</plist>

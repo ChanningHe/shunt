@@ -1,0 +1,464 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"shunt/internal/admin"
+	"shunt/internal/config"
+)
+
+const (
+	labelWidth  = 10 // the column of form labels
+	maxRecent   = 8  // request lines shown while the height is unknown
+	messagesAPI = "/v1/messages"
+)
+
+// Only ANSI 16 colors, bold, faint and reverse: readable on dark and light
+// terminals alike. Color repeats what a glyph and a word already say.
+var (
+	plain    = lipgloss.NewStyle()
+	bold     = lipgloss.NewStyle().Bold(true)
+	dim      = lipgloss.NewStyle().Faint(true)
+	reverse  = lipgloss.NewStyle().Reverse(true)
+	block    = reverse.Bold(true) // the wordmark and the focused heading
+	okStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	warn     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	bad      = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	errStyle = bad.Bold(true)
+	onLamp   = block.Foreground(lipgloss.Color("2"))
+	askStyle = block.Foreground(lipgloss.Color("3"))
+)
+
+// State glyphs; each has a single-cell width in every terminal.
+const (
+	okMark   = "✓ "
+	warnMark = "! "
+	badMark  = "✗ "
+	ruleRune = "─"
+)
+
+// View only renders the model; it does no I/O.
+func (m *model) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
+}
+
+func (m *model) render() string {
+	head, foot := wrap(m.header(), m.width), wrap(m.footer(), m.width)
+	lines := append(head, "")
+	avail := 0 // unlimited while the height is unknown
+	if m.height > 0 {
+		avail = max(1, m.height-len(head)-len(foot)-2) // the blank line and the rule
+	}
+	var body []string
+	if m.mode == formMode {
+		body = m.formLines()
+	} else {
+		body = m.body(avail)
+	}
+	lines = append(lines, body...)
+	// Fill the screen: the rule and the footer sit on its last lines.
+	for n := len(body); n < avail; n++ {
+		lines = append(lines, "")
+	}
+	lines = append(lines, dim.Render(strings.Repeat(ruleRune, max(0, m.width))))
+	lines = append(lines, foot...)
+	return clip(lines, m.width)
+}
+
+func (m *model) header() []string {
+	state := dim.Render("routing off")
+	if m.routing.on {
+		state = onLamp.Render(" routing on ")
+	}
+	lines := []string{block.Render(" shunt ") + "  " + m.c.URL() + "  " + state}
+	if m.st != nil && len(m.st.Files) > 0 {
+		f := m.st.Files[0]
+		line := fmt.Sprintf("config: %s (%s)", m.short(f.Path), f.Format)
+		if !f.Writable {
+			line += " (read-only)"
+		}
+		if len(m.st.Files) > 1 && !m.st.Files[1].Writable {
+			line += " · keys file read-only"
+		}
+		lines = append(lines, dim.Render(line))
+	}
+	if m.st != nil && m.st.LoadError != nil {
+		lines = append(lines, errStyle.Render(badMark+"config error: "+*m.st.LoadError+" (fix the files, then press r)"))
+	}
+	if m.stErr != nil {
+		lines = append(lines, errStyle.Render(badMark+"daemon: "+m.stErr.Error()))
+	}
+	if m.routing.err != nil {
+		lines = append(lines, warn.Render(warnMark+"settings.json: "+m.routing.err.Error()))
+	}
+	if m.routing.on && len(m.routing.drift) > 0 {
+		lines = append(lines, warn.Render(warnMark+"settings.json does not match the alias routes ("+
+			strings.Join(m.routing.drift, "; ")+"); run: shunt on"))
+	}
+	return lines
+}
+
+// short shows a path under the home directory as ~/...
+func (m *model) short(path string) string {
+	if rest, ok := strings.CutPrefix(path, m.home+"/"); ok && m.home != "" {
+		return "~/" + rest
+	}
+	return path
+}
+
+// cell is one table cell; st colors it unless its row is selected.
+type cell struct {
+	s  string
+	st lipgloss.Style
+}
+
+func text(s string) cell { return cell{s, plain} }
+
+// table is a section's content: a header row and one row per entry.
+type table struct {
+	head []string
+	rows [][]cell
+}
+
+// lines renders rows first..last-1 under the header, columns aligned; row
+// cur is marked when the section has the focus.
+func (t table) lines(first, last, cur int, focused bool) []string {
+	widths := make([]int, len(t.head))
+	for i, h := range t.head {
+		widths[i] = lipgloss.Width(h)
+	}
+	for _, row := range t.rows {
+		for i, c := range row {
+			widths[i] = max(widths[i], lipgloss.Width(c.s))
+		}
+	}
+	// gap follows every column but the last.
+	gap := func(s string, col int) string {
+		if col == len(widths)-1 {
+			return ""
+		}
+		return strings.Repeat(" ", widths[col]-lipgloss.Width(s)+2)
+	}
+	var head strings.Builder
+	for i, h := range t.head {
+		head.WriteString(h + gap(h, i))
+	}
+	out := []string{dim.Render("  " + strings.TrimRight(head.String(), " "))}
+	for r := first; r < last; r++ {
+		var line strings.Builder
+		selected := focused && r == cur
+		for i, c := range t.rows[r] {
+			if selected || c.s == "" {
+				line.WriteString(c.s)
+			} else {
+				line.WriteString(c.st.Render(c.s))
+			}
+			line.WriteString(gap(c.s, i))
+		}
+		if selected {
+			out = append(out, block.Render("> "+strings.TrimRight(line.String(), " ")))
+		} else {
+			out = append(out, "  "+strings.TrimRight(line.String(), " "))
+		}
+	}
+	return out
+}
+
+func (m *model) routesTable() table {
+	t := table{head: []string{"NAME", "STATE", "PROVIDER", "UPSTREAM MODEL", "REQS", "LAST", "MODEL ID"}}
+	for _, n := range m.names(routesSec) {
+		r := m.st.Config.Routes[n]
+		prov, note := text(r.Provider), cell{okMark + "ready", okStyle}
+		_, exists := m.st.Config.Providers[r.Provider]
+		switch key := m.st.Keys[r.Provider]; {
+		case !exists:
+			prov.st, note = bad, cell{badMark + "no such provider", bad}
+		case key == config.KeyMissing:
+			note = cell{warnMark + "no key: press K", warn}
+		case key == config.KeyInvalid:
+			note = cell{badMark + "key invalid", bad}
+		}
+		if admin.IsAlias(n) {
+			note.s += " (alias)"
+		}
+		reqs, last := text("-"), text("-")
+		if m.act != nil {
+			if s, ok := m.act.Routes[n]; ok {
+				reqs.s = fmt.Sprint(s.Requests)
+				if s.Errors > 0 {
+					reqs = cell{fmt.Sprintf("%d (%d failed)", s.Requests, s.Errors), warn}
+				}
+				last = cell{fmt.Sprintf("%d %s ago", s.Status, age(m.now().Sub(s.Time))), statusStyle(s.Status)}
+			}
+		}
+		t.rows = append(t.rows, []cell{{n, bold}, note, prov, text(r.Model), reqs, last, {config.WirePrefix + n, dim}})
+	}
+	return t
+}
+
+func (m *model) providersTable() table {
+	used := map[string]int{}
+	for _, r := range m.st.Config.Routes {
+		used[r.Provider]++
+	}
+	t := table{head: []string{"NAME", "KEY", "ROUTES", "BASE URL"}}
+	for _, n := range m.names(providersSec) {
+		key := cell{okMark + m.st.Keys[n], okStyle}
+		switch m.st.Keys[n] {
+		case config.KeyMissing:
+			key = cell{warnMark + config.KeyMissing, warn}
+		case config.KeyInvalid:
+			key = cell{badMark + config.KeyInvalid, bad}
+		}
+		t.rows = append(t.rows, []cell{{n, bold}, key, text(fmt.Sprint(used[n])), {m.st.Config.Providers[n].BaseURL, dim}})
+	}
+	return t
+}
+
+func statusStyle(status int) lipgloss.Style {
+	if status >= 400 {
+		return bad
+	}
+	return okStyle
+}
+
+// age is a short "how long ago".
+func age(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", max(0, int(d.Seconds())))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+// part is a section ready to lay out.
+type part struct {
+	sec   section
+	title string
+	empty string // shown instead of the table when there are no rows
+	table table
+}
+
+func (p part) heading(focused bool, width int) string {
+	st := bold
+	if focused {
+		st = block
+	}
+	return heading(fmt.Sprintf("%s (%d)", p.title, len(p.table.rows)), st, width)
+}
+
+// heading is a title followed by a faint rule to the right edge.
+func heading(title string, st lipgloss.Style, width int) string {
+	s := st.Render(" " + title + " ")
+	n := width - lipgloss.Width(title) - 3
+	if n < 1 {
+		return s
+	}
+	return s + " " + dim.Render(strings.Repeat(ruleRune, n))
+}
+
+// partFixed is the number of lines of a part besides its rows: the heading
+// and the column header (or the hint of an empty part).
+const partFixed = 2
+
+// show renders p with at most rows rows, scrolled to keep cur in view.
+func (p part) show(rows, cur int, focused bool, width int) []string {
+	out := []string{p.heading(focused, width)}
+	n := len(p.table.rows)
+	if n == 0 {
+		return append(out, dim.Render("  "+p.empty))
+	}
+	first, last := 0, n
+	if rows < n {
+		first = min(max(0, cur-rows+1), n-rows)
+		last = first + rows
+	}
+	return append(out, p.table.lines(first, last, cur, focused)...)
+}
+
+// body lays out both sections and, when room is left, the recent requests,
+// within avail lines (0: unlimited).
+func (m *model) body(avail int) []string {
+	if m.st == nil {
+		return []string{dim.Render("  loading...")}
+	}
+	parts := []part{
+		{routesSec, "Routes", "no routes; press a to add one", m.routesTable()},
+		{providersSec, "Providers", "no providers; press a to add one", m.providersTable()},
+	}
+	if len(parts[providersSec].table.rows) == 0 {
+		parts[routesSec].empty = "no routes; add a provider first"
+	}
+	want := [2]int{len(parts[0].table.rows), len(parts[1].table.rows)}
+	const fixed = 2*partFixed + 1 // a blank line between the parts
+
+	focus, other := m.sec, 1-m.sec
+	switch free := avail - fixed; {
+	case avail <= 0 || want[0]+want[1] <= free:
+	case free >= 2: // both lists, the focused one gets most of the room
+		want[other] = min(want[other], max(1, free/3))
+		want[focus] = min(want[focus], free-want[other])
+	default: // only the focused list fits
+		return parts[focus].show(max(1, avail-partFixed), m.cursor[focus], true, m.width)
+	}
+	var out []string
+	for i, p := range parts {
+		if i > 0 {
+			out = append(out, "")
+		}
+		out = append(out, p.show(want[i], m.cursor[i], m.sec == p.sec, m.width)...)
+	}
+	left := maxRecent
+	if avail > 0 { // the requests take whatever room is left
+		left = avail - len(out) - recentFixed
+	}
+	return append(out, m.recent(left)...)
+}
+
+// recentFixed is the number of lines of the recent requests besides its
+// rows: a blank line, the heading and the column header.
+const recentFixed = 3
+
+// recent lists the latest n requests, newest first.
+func (m *model) recent(n int) []string {
+	if n < 1 || m.act == nil {
+		return nil
+	}
+	if len(m.act.Recent) == 0 {
+		return []string{"", heading("Recent requests", bold, m.width),
+			dim.Render("  no requests since the router started; with routing on, every Claude Code request shows here")}
+	}
+	t := table{head: []string{"TIME", "MODEL", "TARGET", "STATUS", "MS", ""}}
+	for _, e := range m.act.Recent[:min(n, len(m.act.Recent))] {
+		target := cell{e.Target, plain}
+		if e.Route == "" {
+			target.st = dim
+		}
+		if e.Target == "rejected" {
+			target.st = warn
+		}
+		path := ""
+		if e.Path != messagesAPI {
+			path = e.Path
+		}
+		model := e.Model
+		if model == "" {
+			model = "-"
+		}
+		status := okMark
+		if e.Status >= 400 {
+			status = badMark
+		}
+		t.rows = append(t.rows, []cell{
+			{e.Time.Local().Format("15:04:05"), dim}, text(model), target,
+			{status + fmt.Sprint(e.Status), statusStyle(e.Status)}, {fmt.Sprint(e.Ms), dim}, {path, dim},
+		})
+	}
+	out := []string{"", heading("Recent requests", bold, m.width)}
+	return append(out, t.lines(0, len(t.rows), -1, false)...)
+}
+
+func (m *model) formLines() []string {
+	f := m.form
+	lines := []string{heading(f.title, block, m.width), ""}
+	for i := range f.fields {
+		fl := &f.fields[i]
+		mark, label := "  ", dim
+		if i == f.focus {
+			mark, label = "> ", bold
+		}
+		val := fl.input.View()
+		if fl.choices != nil {
+			val = fmt.Sprintf("< %s >  %s", fl.choices[fl.choice],
+				dim.Render(fmt.Sprintf("%d/%d", fl.choice+1, len(fl.choices))))
+		}
+		lines = append(lines, mark+label.Render(fmt.Sprintf("%-*s", labelWidth, fl.label))+val)
+	}
+	notes := []string{""}
+	if f.hint != "" {
+		notes = append(notes, dim.Render(f.hint))
+	}
+	if f.err != nil {
+		notes = append(notes, errStyle.Render(badMark+f.err.Error()))
+	}
+	return append(lines, wrap(notes, m.width)...)
+}
+
+func (m *model) footer() []string {
+	var lines []string
+	switch {
+	case m.mode == formMode:
+		lines = hints(m.width, "enter save", "esc cancel", "tab/↑↓ next field")
+	case m.mode == confirmMode:
+		lines = []string{askStyle.Render(" "+m.prompt+" ") + " y to confirm, any other key cancels"}
+	case m.sec == routesSec:
+		lines = hints(m.width, "tab providers", "a add", "e edit", "d delete", "t test", "K set key", "r reload", "o routing", "q quit")
+	default:
+		lines = hints(m.width, "tab routes", "a add", "e edit", "d delete", "K set key", "X clear key", "r reload", "o routing", "q quit")
+	}
+	if m.result != "" {
+		lines = append(lines, strings.Split(m.result, "\n")...)
+	}
+	if m.failure != nil {
+		lines = append(lines, errStyle.Render(badMark+"error: "+m.failure.Error()))
+	}
+	return lines
+}
+
+// hints joins key hints with faint separators into lines of at most width
+// (0: one line), never splitting a hint from its key.
+func hints(width int, h ...string) []string {
+	const sep = " · "
+	sepW := lipgloss.Width(sep)
+	var lines []string
+	line, w := "", 0
+	for _, s := range h {
+		sw := lipgloss.Width(s)
+		switch {
+		case w == 0:
+			line, w = s, sw
+		case width > 0 && w+sepW+sw > width:
+			lines = append(lines, line)
+			line, w = s, sw
+		default:
+			line += dim.Render(sep) + s
+			w += sepW + sw
+		}
+	}
+	return append(lines, line)
+}
+
+// wrap breaks lines longer than width (0: unknown, left as they are).
+func wrap(lines []string, width int) []string {
+	if width <= 0 {
+		return lines
+	}
+	var out []string
+	for _, l := range lines {
+		out = append(out, strings.Split(lipgloss.Wrap(l, width, " "), "\n")...)
+	}
+	return out
+}
+
+// clip cuts every line to width and joins them; the tables and forms stay
+// one line per row however narrow the terminal is.
+func clip(lines []string, width int) string {
+	if width > 0 {
+		cut := lipgloss.NewStyle().MaxWidth(width)
+		for i, l := range lines {
+			lines[i] = cut.Render(l)
+		}
+	}
+	return strings.Join(lines, "\n")
+}

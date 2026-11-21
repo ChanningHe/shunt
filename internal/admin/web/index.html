@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>shunt</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="22" height="22">
+      <h1>shunt</h1>
+    </div>
+    <span id="health" class="lamp" role="status" hidden></span>
+    <span id="listen" class="listen"></span>
+    <button id="reload" type="button" class="secondary" title="Re-read the config files from disk" hidden>Reload config</button>
+  </div>
+</header>
+
+<main>
+  <section id="login" class="login" hidden>
+    <h2>Sign in from a terminal</h2>
+    <p id="login-reason" class="login-reason"></p>
+    <p>Run <code>shunt web</code> in a terminal on this machine. It opens this page with a one-time link that is valid for 60 seconds.</p>
+    <p class="muted">The session lives only in this tab: reloading the page signs you out.</p>
+  </section>
+
+  <div id="app" hidden>
+    <p id="offline" class="alert error" role="alert" hidden></p>
+    <p id="load-error" class="alert error" hidden></p>
+    <p id="lock" class="alert warn" hidden></p>
+    <div id="notices" class="notices" aria-live="polite"></div>
+
+    <section id="setup" class="setup" aria-labelledby="setup-h" hidden>
+      <h2 id="setup-h">Getting started</h2>
+      <ol id="steps" class="steps"></ol>
+      <p class="muted">Then run <code>shunt on</code> in a terminal, restart Claude Code, and give a subagent the model <code>shunt/NAME</code> (agent frontmatter <code>model: shunt/NAME</code>).</p>
+    </section>
+
+    <section class="sec" aria-labelledby="routes-h">
+      <div class="sec-head">
+        <h2 id="routes-h">Routes <span id="routes-count" class="count"></span></h2>
+        <button id="add-route" type="button">Add route</button>
+        <p class="lead">A subagent whose model is <code>shunt/NAME</code> is sent to the route's provider and upstream model. Everything else goes to Anthropic unchanged.</p>
+      </div>
+      <table class="grid routes">
+        <thead><tr><th>Route</th><th>Sends to</th><th>Traffic</th><th><span class="sr">Actions</span></th></tr></thead>
+        <tbody id="routes"></tbody>
+      </table>
+      <p id="routes-empty" class="empty" hidden>No routes yet.</p>
+    </section>
+
+    <section class="sec" aria-labelledby="providers-h">
+      <div class="sec-head">
+        <h2 id="providers-h">Providers <span id="providers-count" class="count"></span></h2>
+        <button id="add-provider" type="button">Add provider</button>
+      </div>
+      <table class="grid providers">
+        <thead><tr><th>Name</th><th>Base URL</th><th>Key</th><th>Used by</th><th><span class="sr">Actions</span></th></tr></thead>
+        <tbody id="providers"></tbody>
+      </table>
+      <p id="providers-empty" class="empty" hidden>No providers yet.</p>
+    </section>
+
+    <section class="sec" aria-labelledby="recent-h">
+      <div class="sec-head">
+        <h2 id="recent-h">Recent requests</h2>
+        <span id="recent-note" class="muted small"></span>
+      </div>
+      <table class="grid recent">
+        <thead><tr><th>Time</th><th>Model</th><th>Sent to</th><th>Status</th><th class="num">Duration</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table>
+      <p id="recent-empty" class="empty" hidden>No requests since the router started. With routing on, every Claude Code request shows up here.</p>
+    </section>
+
+    <dl id="files" class="files"></dl>
+  </div>
+</main>
+
+<dialog id="provider-dlg" aria-labelledby="provider-title">
+  <form id="provider-form">
+    <h2 id="provider-title">Provider</h2>
+    <div class="field">
+      <label for="provider-name">Name</label>
+      <input id="provider-name" name="name" required pattern="[a-z0-9][a-z0-9\-]*" autocomplete="off" spellcheck="false">
+      <p class="hint">Lower-case letters, digits and dashes.</p>
+    </div>
+    <div class="field">
+      <label for="provider-url">Base URL</label>
+      <input id="provider-url" name="base_url" type="url" required autocomplete="off" spellcheck="false">
+      <p id="provider-url-hint" class="hint">The provider's Anthropic-compatible endpoint, without <code>/v1/messages</code>.</p>
+    </div>
+    <div id="provider-key-row" class="field">
+      <label for="provider-key">Key <span class="optional">optional</span></label>
+      <input id="provider-key" name="key" type="password" autocomplete="off" spellcheck="false">
+      <p class="hint">The key itself, or <code>file:///absolute/path</code> to a file holding it. You can set it later.</p>
+    </div>
+    <p class="form-error" role="alert" hidden></p>
+    <div class="actions">
+      <button type="button" class="secondary" data-close>Cancel</button>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="key-dlg" aria-labelledby="key-title">
+  <form id="key-form">
+    <h2 id="key-title">Set key</h2>
+    <div class="field">
+      <label for="key-value">Key</label>
+      <input id="key-value" name="value" type="password" required autocomplete="off" spellcheck="false">
+      <p class="hint">The key itself, or <code>file:///absolute/path</code> to a file holding it. It is written to the keys file and never shown again.</p>
+    </div>
+    <p class="form-error" role="alert" hidden></p>
+    <div class="actions">
+      <button type="button" class="secondary" data-close>Cancel</button>
+      <button type="submit">Set key</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="route-dlg" aria-labelledby="route-title">
+  <form id="route-form">
+    <h2 id="route-title">Route</h2>
+    <div class="field">
+      <label for="route-name">Name</label>
+      <input id="route-name" name="name" required pattern="[a-z0-9][a-z0-9\-]*" autocomplete="off" spellcheck="false">
+      <p id="route-id" class="hint"></p>
+      <p id="route-alias" class="hint warn-text" hidden></p>
+    </div>
+    <div class="field">
+      <label for="route-provider">Provider</label>
+      <select id="route-provider" name="provider" required></select>
+    </div>
+    <div class="field">
+      <label for="route-model">Upstream model</label>
+      <input id="route-model" name="model" required autocomplete="off" spellcheck="false" list="route-models">
+      <datalist id="route-models"></datalist>
+      <p class="hint">The model name the provider expects.</p>
+    </div>
+    <p class="form-error" role="alert" hidden></p>
+    <div class="actions">
+      <button type="button" class="secondary" data-close>Cancel</button>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirm-dlg" class="confirm" aria-labelledby="confirm-text">
+  <form method="dialog">
+    <p id="confirm-text"></p>
+    <div class="actions">
+      <button value="cancel" class="secondary">Cancel</button>
+      <button value="ok" id="confirm-ok" class="danger">Delete</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

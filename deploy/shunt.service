@@ -1,0 +1,35 @@
+# systemd user unit. Install:
+#   install -Dm755 shunt ~/.local/bin/shunt
+#   install -d -m700 ~/.config/shunt     # must exist: ReadWritePaths needs it
+#   install -Dm644 deploy/shunt.service ~/.config/systemd/user/shunt.service
+#   systemctl --user daemon-reload && systemctl --user enable --now shunt
+# Configuration lives in ~/.config/shunt: config.toml (providers, routes) and
+# keys.toml (mode 0600). Each key in keys.toml is either the literal key or a
+# file:// path to a file holding it, e.g. a sops(-nix) decrypted secret:
+#   deepseek = "sk-..."
+#   deepseek = "file:///run/user/1000/secrets/deepseek"
+# The listen address comes from config.toml (default 127.0.0.1:27486).
+# Change the config with shunt provider/route (through this daemon's admin
+# API; its token lives in $XDG_RUNTIME_DIR/shunt). After editing the files
+# by hand: systemctl --user reload shunt (sends SIGHUP via shunt reload --pid;
+# it needs neither the admin API nor the token).
+[Unit]
+Description=shunt: local Claude Code router (subagents -> third-party provider)
+
+[Service]
+ExecStart=%h/.local/bin/shunt serve --config-dir %h/.config/shunt
+ExecReload=%h/.local/bin/shunt reload --pid $MAINPID
+Restart=always
+RestartSec=1
+RuntimeDirectory=shunt
+RuntimeDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/shunt
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

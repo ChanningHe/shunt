@@ -1,0 +1,5 @@
+/shunt
+*.env
+.env
+e2e/out/
+/result

@@ -335,7 +335,7 @@ label { display: block; margin: 0 0 0.35rem; font-weight: 600; font-size: 0.85re
 .edges path.is-related { stroke: var(--related); stroke-width: 2; }
 .edges path.is-selected { stroke: var(--ink); stroke-width: 2.25; }
 .edges path.is-live {
-  stroke: var(--ok); stroke-dasharray: 6 6;
+  stroke: var(--ok); stroke-width: 3; stroke-dasharray: 6 6;
   animation: flow 0.8s linear infinite;
 }
 @keyframes flow { to { stroke-dashoffset: -12; } }

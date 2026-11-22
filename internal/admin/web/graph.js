@@ -102,8 +102,9 @@ function drawEdges(svg, g) {
 // paintEdges marks the paths of the selected route, of the routes reaching
 // the related target, and of live routes. Routes sharing a target share
 // the hub -> target stretch, and SVG paints in document order, so marked
-// paths move to the end; only when the order changes, since moving a node
-// restarts its animation.
+// paths move to the end, live ones last: their dashes then show on top of a
+// selected wire. Only when the order changes, since moving a node restarts
+// its animation.
 function paintEdges(svg, g, selected, related) {
   const byName = ends(g);
   const paths = [...svg.children];
@@ -114,7 +115,7 @@ function paintEdges(svg, g, selected, related) {
     p.classList.toggle('is-related', related !== null && e.target.key === related);
     p.classList.toggle('is-live', e.source.live);
   }
-  const rank = (p) => ['is-live', 'is-related', 'is-selected'].reduce((r, c, i) => (p.classList.contains(c) ? i + 1 : r), 0);
+  const rank = (p) => ['is-related', 'is-selected', 'is-live'].reduce((r, c, i) => (p.classList.contains(c) ? i + 1 : r), 0);
   const order = [...paths].sort((a, b) => rank(a) - rank(b));
   if (order.some((p, i) => p !== paths[i])) svg.append(...order);
 }

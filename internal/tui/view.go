@@ -219,8 +219,9 @@ func (m *model) routesTable() table {
 	for i, s := range g.sources[:rest] {
 		to := g.targets[g.edge[i]]
 		state := targetCell(to.state)
-		if s.alias {
-			state.s += " (alias)"
+		id := config.WirePrefix + s.name
+		if s.alias { // the bare alias selects the route too
+			id += " or " + s.name
 		}
 		reqs, last := text("-"), text("-")
 		if s.stats != nil {
@@ -234,7 +235,7 @@ func (m *model) routesTable() table {
 		if to.state == stateNoProvider {
 			dest.st = bad
 		}
-		t.rows = append(t.rows, []cell{{config.WirePrefix + s.name, bold}, dest, state, reqs, last})
+		t.rows = append(t.rows, []cell{{id, bold}, dest, state, reqs, last})
 	}
 	dest := destCell(g.sources[rest].live, g.targets[g.edge[rest]].provider)
 	if !g.sources[rest].live {

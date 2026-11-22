@@ -463,7 +463,7 @@ func TestOverviewShowsRoutesProvidersAndActivity(t *testing.T) {
 	r.wantView(
 		"Routes (2)", "Providers (2)", "Recent requests",
 		"shunt/sonnet", "━━▶ deepseek · deepseek-flash", "2 (1 failed)", "200 8s ago",
-		"no key (alias)", // deepseek has no key
+		"shunt/sonnet or sonnet", "no key", // the alias selects the route too; deepseek has no key
 		"everything else", "━━▶ anthropic", "unchanged",
 		"kimi", "literal", "https://api.kimi.example/anthropic",
 		"claude-fable-5-2", "anthropic", "rejected", "529",

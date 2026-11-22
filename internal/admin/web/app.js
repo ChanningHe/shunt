@@ -351,7 +351,7 @@ function sourceNode(s, lock) {
         type: 'button', class: 'pick', 'data-key': `route:${name}:select`,
         'aria-pressed': String(flags['is-selected']), onclick: () => select(name),
       }, el('code', { class: 'id', text: s.id })),
-      s.alias ? badge('warn', 'alias', aliasWarning(name)) : null),
+      s.alias ? badge('warn', 'or ' + name, aliasWarning(name)) : null),
     el('div', { class: 'dest wrap', text: `→ ${s.provider} · ${s.model}` }),
     ...traffic(s),
     el('div', { class: 'row-actions' },
@@ -601,7 +601,8 @@ function openRoute(name) {
 // selected provider as suggestions.
 function showRouteHints() {
   const name = $('route-name').value.trim();
-  $('route-id').textContent = name ? `Subagents ask for it as ${WIRE_PREFIX}${name}.` : 'Lower-case letters, digits and dashes.';
+  const ids = WIRE_PREFIX + name + (isAlias(name) ? ' or ' + name : '');
+  $('route-id').textContent = name ? `Subagents ask for it as ${ids}.` : 'Lower-case letters, digits and dashes.';
   const hint = $('route-alias');
   hint.hidden = !isAlias(name);
   hint.textContent = isAlias(name) ? aliasWarning(name) : '';

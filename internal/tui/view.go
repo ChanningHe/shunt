@@ -33,6 +33,12 @@ var (
 	errStyle = bad.Bold(true)
 	onLamp   = block.Foreground(lipgloss.Color("2"))
 	askStyle = block.Foreground(lipgloss.Color("3"))
+	keycap   = reverse // a key in the footer
+
+	// Each section has its own hue, so the three read apart at a glance.
+	routesHead    = bold.Foreground(lipgloss.Color("6"))
+	providersHead = bold.Foreground(lipgloss.Color("5"))
+	recentHead    = bold.Foreground(lipgloss.Color("12"))
 )
 
 // State glyphs; each has a single-cell width in every terminal.
@@ -77,7 +83,7 @@ func (m *model) render() string {
 }
 
 func (m *model) header() []string {
-	state := dim.Render("routing off")
+	state := reverse.Render(" routing off ")
 	if m.routing.on {
 		state = onLamp.Render(" routing on ")
 	}
@@ -173,8 +179,12 @@ func line(row []cell, widths []int, selected bool) string {
 		}
 	}
 	s := strings.TrimRight(b.String(), " ")
-	if selected {
-		return block.Render("> " + s)
+	if selected { // the bar spans the whole table, not just this row's text
+		total := 2 * (len(widths) - 1)
+		for _, w := range widths {
+			total += w
+		}
+		return block.Render("> " + s + strings.Repeat(" ", max(0, total-lipgloss.Width(s))))
 	}
 	return "  " + s
 }
@@ -296,26 +306,27 @@ func age(d time.Duration) string {
 type part struct {
 	sec   section
 	title string
+	head  lipgloss.Style
 	empty string // shown instead of the table when there are no rows
 	table table
 }
 
 func (p part) heading(focused bool, width int) string {
-	st := bold
+	st := p.head
 	if focused {
-		st = block
+		st = st.Reverse(true)
 	}
 	return heading(fmt.Sprintf("%s (%d)", p.title, len(p.table.rows)), st, width)
 }
 
-// heading is a title followed by a faint rule to the right edge.
+// heading is a title followed by a faint rule in its color to the right edge.
 func heading(title string, st lipgloss.Style, width int) string {
 	s := st.Render(" " + title + " ")
 	n := width - lipgloss.Width(title) - 3
 	if n < 1 {
 		return s
 	}
-	return s + " " + dim.Render(strings.Repeat(ruleRune, n))
+	return s + " " + dim.Foreground(st.GetForeground()).Render(strings.Repeat(ruleRune, n))
 }
 
 // partFixed is the number of lines of a part besides its rows: the heading
@@ -350,8 +361,8 @@ func (m *model) body(avail int) []string {
 		return []string{dim.Render("  loading...")}
 	}
 	parts := []part{
-		{routesSec, "Routes", "no routes; press a to add one", m.routesTable()},
-		{providersSec, "Providers", "no providers; press a to add one", m.providersTable()},
+		{routesSec, "Routes", routesHead, "no routes; press a to add one", m.routesTable()},
+		{providersSec, "Providers", providersHead, "no providers; press a to add one", m.providersTable()},
 	}
 	if len(parts[providersSec].table.rows) == 0 {
 		parts[routesSec].empty = "no routes; add a provider first"
@@ -398,7 +409,7 @@ func (m *model) recent(n int) []string {
 		return nil
 	}
 	if len(m.act.Recent) == 0 {
-		return []string{"", heading("Recent requests", bold, m.width),
+		return []string{"", heading("Recent requests", recentHead, m.width),
 			dim.Render("  no requests since the router started; with routing on, every Claude Code request shows here")}
 	}
 	t := table{head: []string{"TIME", "MODEL", "TARGET", "STATUS", "MS", ""}}
@@ -427,7 +438,7 @@ func (m *model) recent(n int) []string {
 			{status + fmt.Sprint(e.Status), statusStyle(e.Status)}, {fmt.Sprint(e.Ms), dim}, {path, dim},
 		})
 	}
-	out := []string{"", heading("Recent requests", bold, m.width)}
+	out := []string{"", heading("Recent requests", recentHead, m.width)}
 	return append(out, t.lines(0, len(t.rows), -1, false, false)...)
 }
 
@@ -478,24 +489,25 @@ func (m *model) footer() []string {
 	return lines
 }
 
-// hints joins key hints with faint separators into lines of at most width
-// (0: one line), never splitting a hint from its key.
+// hints lays out key hints, each "key what it does" with the key drawn as a
+// keycap, into lines of at most width (0: one line), never splitting a hint.
 func hints(width int, h ...string) []string {
-	const sep = " · "
-	sepW := lipgloss.Width(sep)
+	const gap = 1
 	var lines []string
 	line, w := "", 0
 	for _, s := range h {
+		key, what, _ := strings.Cut(s, " ")
+		s = keycap.Render(" "+key+" ") + " " + what
 		sw := lipgloss.Width(s)
 		switch {
 		case w == 0:
 			line, w = s, sw
-		case width > 0 && w+sepW+sw > width:
+		case width > 0 && w+gap+sw > width:
 			lines = append(lines, line)
 			line, w = s, sw
 		default:
-			line += dim.Render(sep) + s
-			w += sepW + sw
+			line += strings.Repeat(" ", gap) + s
+			w += gap + sw
 		}
 	}
 	return append(lines, line)

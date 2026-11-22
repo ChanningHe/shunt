@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"shunt/internal/admin"
@@ -368,7 +369,7 @@ func TestShortTerminalKeepsCursorAndFooter(t *testing.T) {
 	if n := strings.Count(v, "\n") + 1; n > 15 {
 		t.Fatalf("%d lines in a 15-line terminal:\n%s", n, v)
 	}
-	r.wantView("r20", "q quit", "routing off", "config: ")
+	r.wantView("r20", "quit", "routing off", "config: ")
 }
 
 func TestAddProviderWithKey(t *testing.T) {
@@ -523,7 +524,7 @@ model = "kimi-k3"
 	for _, size := range [][2]int{{80, 24}, {50, 12}} {
 		r.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		lines := strings.Split(ansi.Strip(r.view()), "\n")
-		if len(lines) != size[1] || !strings.Contains(strings.Join(lines[size[1]-3:], "\n"), "q quit") {
+		if len(lines) != size[1] || !strings.Contains(strings.Join(lines[size[1]-3:], "\n"), "quit") {
 			t.Fatalf("%v: footer not at the bottom:\n%s", size, r.view())
 		}
 		rows, selected := 0, false
@@ -574,7 +575,7 @@ func TestRestRowGivesWayFirst(t *testing.T) {
 				name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(l, "> "), "  "), " ")
 				rows[name] = true
 			}
-			if !strings.Contains(v, "> "+selected) || !strings.Contains(v, "q quit") {
+			if !strings.Contains(v, "> "+selected) || !strings.Contains(v, "quit") {
 				t.Fatalf("height %d: selected row or footer missing:\n%s", h, v)
 			}
 			// 12: header 2, blank, both lists with one row each, rule, footer.
@@ -651,7 +652,7 @@ func TestViewFillsTheScreen(t *testing.T) {
 			if len(lines) != h {
 				t.Fatalf("height %d after %v: %d lines:\n%s", h, keys, len(lines), r.view())
 			}
-			if last := strings.Join(lines[h-3:], "\n"); !strings.Contains(last, "cancel") && !strings.Contains(last, "q quit") {
+			if last := strings.Join(lines[h-3:], "\n"); !strings.Contains(last, "cancel") && !strings.Contains(last, "quit") {
 				t.Fatalf("height %d after %v: footer is not at the bottom:\n%s", h, keys, r.view())
 			}
 		}
@@ -690,5 +691,28 @@ func TestFormFitsASmallScreen(t *testing.T) {
 	lines := strings.Split(r.view(), "\n")
 	if len(lines) != h || !strings.Contains(strings.Join(lines[h-3:], "\n"), "cancel") {
 		t.Fatalf("form does not fit %d lines (%d):\n%s", h, len(lines), r.view())
+	}
+}
+
+func TestFooterKeysAreKeycaps(t *testing.T) {
+	r := newRig(t, twoProviders)
+	r.wantView(keycap.Render(" q ")+" quit", keycap.Render(" tab ")+" providers")
+}
+
+// The bar of the selected row covers every column, however short its text.
+func TestSelectionBarSpansTheTable(t *testing.T) {
+	r := newRig(t, twoProviders)
+	r.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	var head, bar int
+	for _, l := range strings.Split(r.view(), "\n") {
+		switch s := ansi.Strip(l); {
+		case strings.HasPrefix(s, "  ROUTE"):
+			head = lipgloss.Width(s)
+		case strings.HasPrefix(s, "> "):
+			bar = lipgloss.Width(s)
+		}
+	}
+	if head == 0 || bar < head {
+		t.Fatalf("selection bar is %d cells, the header %d:\n%s", bar, head, r.view())
 	}
 }

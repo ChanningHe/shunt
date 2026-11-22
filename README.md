@@ -16,7 +16,7 @@ Claude Code ──► shunt (127.0.0.1:27486) ──► api.anthropic.com      e
 ## Quick start
 
 ```sh
-go build -o ~/.local/bin/shunt .         # or Homebrew or the Nix flake, see below
+go build -o ~/.local/bin/shunt .         # or a release binary, Homebrew, or the Nix flake
 shunt serve &                            # or run it as a service, see below
 
 shunt provider add deepseek -b https://api.deepseek.com/anthropic
@@ -36,7 +36,7 @@ To run it as a service, see the header of `deploy/shunt.service` (systemd user u
 
 ```sh
 brew tap channinghe/shunt https://github.com/ChanningHe/shunt
-brew install shunt                       # --HEAD for the main branch
+brew install channinghe/shunt/shunt      # the full name; --HEAD for the main branch
 brew services start shunt                # instead of shunt serve &
 ```
 

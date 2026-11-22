@@ -45,13 +45,14 @@ function buildGraph(state, activity, nowMs) {
       id: WIRE_PREFIX + name,
       provider: r.provider,
       model: r.model,
+      to: targetKey(r),
       alias: isAlias(name),
       stats: s ? { requests: s.requests, errors: s.errors, status: s.status, time: s.time } : null,
       live: liveWhere((e) => e.route === name),
     };
   });
   const anthropicLive = liveWhere((e) => e.target === ANTHROPIC);
-  sources.push({ name: '', id: '', provider: '', model: '', alias: false, stats: null, live: anthropicLive });
+  sources.push({ name: '', id: '', provider: '', model: '', to: ANTHROPIC, alias: false, stats: null, live: anthropicLive });
 
   const seen = new Map();
   for (const name of names) {

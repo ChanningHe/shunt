@@ -11,6 +11,9 @@
   --line: #e0ddd4;
   --line-2: #c9c5ba;
   --hover: rgb(26 25 23 / 0.06);
+  --wire: #bcb7ab;
+  --related: #8a8578;
+  --hatch: rgb(26 25 23 / 0.055);
   --on-ink: #f6f5f1;
   --ok: #1a7038;
   --ok-bg: #e2f0e4;
@@ -36,6 +39,9 @@
     --line: #2c2b28;
     --line-2: #44423d;
     --hover: rgb(237 235 228 / 0.07);
+    --wire: #4d4b46;
+    --related: #8f8b82;
+    --hatch: rgb(237 235 228 / 0.06);
     --on-ink: #131312;
     --ok: #72d394;
     --ok-bg: #163021;
@@ -307,42 +313,184 @@ label { display: block; margin: 0 0 0.35rem; font-weight: 600; font-size: 0.85re
 
 /* ---- routing graph ----------------------------------------------------- */
 
-/* Three columns under one svg; the svg is drawn in this box's coordinates. */
+/* Three columns under one svg; the svg is drawn in this box's coordinates.
+   Wires are neutral; the selected route's path is ink, the routes reaching
+   a picked target are a mid tone, and live traffic is the one hue (ok),
+   dashed so it still reads without color. Every wire ends on a port dot
+   drawn on the card edge it touches. */
 .graph {
   position: relative;
-  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center; gap: 1rem 4rem;
+  display: grid; grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 0.85fr);
+  align-items: center; gap: 1rem 4.5rem;
+  padding: 0.25rem 0;
 }
 .edges {
   position: absolute; inset: 0; width: 100%; height: 100%;
   overflow: visible; pointer-events: none;
 }
-.edges path { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
-.edges path.is-related { stroke: var(--muted); }
-.edges path.is-selected { stroke: var(--ink); stroke-width: 2; }
-.edges path.is-live { stroke-dasharray: 6 4; }
-.col, .nodes { position: relative; display: grid; gap: 0.6rem; min-width: 0; }
+.edges path {
+  fill: none; stroke: var(--wire); stroke-width: 1.5; stroke-linecap: round;
+  transition: stroke 0.15s, stroke-width 0.15s;
+}
+.edges path.is-related { stroke: var(--related); stroke-width: 2; }
+.edges path.is-selected { stroke: var(--ink); stroke-width: 2.25; }
+.edges path.is-live {
+  stroke: var(--ok); stroke-dasharray: 6 6;
+  animation: flow 0.8s linear infinite;
+}
+@keyframes flow { to { stroke-dashoffset: -12; } }
+
+.col { position: relative; display: grid; align-content: start; gap: 0.5rem; min-width: 0; }
+.col-sources { container: sources / inline-size; }
+.col-hub { align-content: center; }
+.nodes { display: grid; gap: 0.5rem; min-width: 0; }
+/* The route cards, Add route and the fixed fallback share one stack, so
+   Add route can sit right under the routes it adds to. */
+.col-sources > .nodes { display: contents; }
+.col-sources .rest { order: 1; margin-top: 0.5rem; }
+
 .node {
   position: relative; min-width: 0;
-  background: var(--field); border: 1px solid var(--line-2); border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  background: var(--field); border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 0.55rem 0.75rem 0.6rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.node.is-related { border-color: var(--muted); }
-.node.is-selected { border-color: var(--ink); }
-.node.is-live { box-shadow: 0 0 0 2px var(--ok-bg); }
-.node-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+.node:has(.pick):hover { border-color: var(--muted); }
+.node.is-related {
+  border-color: var(--related);
+  box-shadow: 0 0 0 1px var(--related);
+  background: linear-gradient(var(--hover), var(--hover)), var(--field);
+}
+.node.is-selected { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+
+/* Port dots where the wires meet a card. */
+.node.source::after, .node.target::before {
+  content: ""; position: absolute; top: 50%; z-index: 1;
+  width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%;
+  background: var(--bg); border: 1.5px solid var(--wire);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.node.source::after { right: -5px; }
+.node.target::before { left: -5px; }
+.node.is-related::before, .node.is-related::after { background: var(--related); border-color: var(--related); }
+.node.is-selected::before, .node.is-selected::after { background: var(--ink); border-color: var(--ink); }
+.node.source.is-live::after, .node.target.is-live::before {
+  background: var(--ok); border-color: var(--ok);
+  animation: pulse 1.6s ease-out infinite;
+}
+@keyframes pulse {
+  from { box-shadow: 0 0 0 0 var(--ok); }
+  to { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* Live says so in words too, on a tab across the top border, so nothing
+   inside the card moves when traffic starts or stops. */
+.node.source.is-live::before, .node.target.is-live::after {
+  content: "live"; position: absolute; top: -0.45rem; right: 0.7rem; z-index: 2;
+  padding: 0 0.35rem; border-radius: 3px;
+  font: 700 0.62rem/0.9rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ok); background: var(--ok-bg); box-shadow: 0 0 0 2px var(--bg);
+}
+
+.node-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.45rem; min-width: 0; }
+.node.target .node-head { flex-wrap: nowrap; align-items: baseline; }
+.node.target .node-head .pick { flex: 1 1 auto; min-width: 0; }
+
+/* The pick button stretches over its card: anywhere on the card selects.
+   Controls that do something else sit above it. */
 button.pick {
-  min-height: 0; padding: 0; border: 0; background: none; color: inherit;
-  font-weight: 650; white-space: normal; text-align: left;
+  position: static;
+  justify-content: flex-start;
+  min-height: 1.6rem; padding: 0; border: 0; background: none; color: var(--ink);
+  font-weight: 600; white-space: normal; text-align: left; overflow-wrap: anywhere;
 }
-button.pick:hover:not(:disabled) { background: none; text-decoration: underline; }
-.dest { color: var(--ink-2); }
-.stats { color: var(--muted); font-size: 0.85rem; }
-.node .row-actions { justify-content: flex-start; flex-wrap: wrap; margin: 0.3rem 0 0; }
+button.pick::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+button.pick:hover:not(:disabled) { background: none; }
+button.pick:focus-visible { outline: none; }
+.node:has(.pick:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
+.node .row-actions, .node .badge[title], .node .test { position: relative; z-index: 1; }
+
+.pick code.id {
+  background: none; padding: 0; border-radius: 0;
+  font-size: 0.9rem; font-weight: 600; color: var(--ink);
+}
+.dest { color: var(--ink-2); line-height: 1.4; }
+.stats { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
+.node .test { font-size: 0.8rem; }
+
+/* Route card: id and actions on one line when the column is wide enough. */
+.node.source:not(.rest) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; column-gap: 0.5rem;
+}
+.node.source > * { grid-column: 1 / -1; }
+.node.source > .node-head { grid-column: 1; grid-row: 1; }
+.node.source > .row-actions { grid-column: 2; grid-row: 1; }
+@container sources (max-width: 23rem) {
+  .node.source > .row-actions { grid-column: 1 / -1; grid-row: auto; margin: 0.25rem -0.4rem -0.2rem 0; }
+}
+
+/* Card actions stay quiet: muted words, a fill only when pointed at. */
+.node .row-actions { justify-content: flex-end; flex-wrap: wrap; gap: 0; margin: -0.2rem -0.4rem -0.2rem 0; }
+.node .row-actions button,
+.node .row-actions button.link {
+  min-height: 1.75rem; padding: 0.1rem 0.45rem; border: 1px solid transparent; border-radius: 4px;
+  background: none; color: var(--muted); font-size: 0.78rem; font-weight: 500; text-decoration: none;
+}
+.node .row-actions button:hover:not(:disabled) { background: var(--hover); border-color: transparent; color: var(--ink); }
+.node .row-actions button.danger-text:hover:not(:disabled) { color: var(--bad); background: var(--bad-bg); }
+.node:hover .row-actions button:not(:disabled):not(:hover),
+.node.is-selected .row-actions button:not(:disabled):not(:hover) { color: var(--ink-2); }
+
+/* Target: the fix-it action is a real button. */
+.node.target .row-actions { justify-content: flex-start; margin: 0.35rem 0 0; }
+.node.target .row-actions button { border-color: var(--line-2); color: var(--ink-2); padding: 0.1rem 0.6rem; }
+
+/* Fixed ends of the graph: hatched, flat, no actions. */
+.node.rest, .node[data-target="anthropic"] {
+  background: repeating-linear-gradient(-45deg, transparent 0 5px, var(--hatch) 5px 6px), var(--bg);
+  border-color: var(--line-2);
+}
+.node.rest strong { font-weight: 600; color: var(--ink-2); }
+.node.rest .dest { color: var(--muted); font-size: 0.9rem; }
+.node[data-target="anthropic"] .pick { color: var(--ink-2); }
+
+/* Add route continues the stack of route cards. */
+.add-route { display: grid; gap: 0.35rem; }
+.add-route button {
+  justify-content: flex-start; width: 100%; min-height: 2.5rem;
+  padding: 0.3rem 0.75rem; border: 1px dashed var(--line-2); border-radius: 8px;
+  background: none; color: var(--ink-2); font-weight: 600;
+}
+.add-route button:hover:not(:disabled) { background: var(--hover); border-color: var(--muted); border-style: solid; color: var(--ink); }
+.add-route p { margin: 0 0.1rem; }
+
+/* The hub: the one ink-bordered box, ringed, without a fill that would
+   outweigh the cards around it. */
 .hub {
-  display: grid; justify-items: center; gap: 0.15rem;
-  padding: 0.75rem 1rem; border: 2px solid var(--ink); border-radius: 8px;
+  position: relative;
+  display: grid; justify-items: center; gap: 0.1rem;
+  min-width: 10.5rem; padding: 0.85rem 1.25rem 0.8rem;
+  border: 1.5px solid var(--ink); border-radius: 12px;
   background: var(--field); text-align: center;
+  box-shadow: 0 0 0 5px var(--bg), 0 0 0 6px var(--line-2);
+}
+.hub::before, .hub::after {
+  content: ""; position: absolute; top: 50%; z-index: 1;
+  width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%;
+  background: var(--ink);
+}
+.hub::before { left: -5.25px; }
+.hub::after { right: -5.25px; }
+.hub strong { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+#hub-listen { color: var(--muted); font-size: 0.78rem; }
+#hub-health { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; font-weight: 600; font-size: 0.78rem; }
+#hub-health::before { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
+#hub-health.bad-text::before { border-radius: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .edges path.is-live, .node.source.is-live::after, .node.target.is-live::before { animation: none; }
+  .edges path, .node, .node::before, .node::after { transition: none; }
 }
 
 /* ---- dialogs ----------------------------------------------------------- */
@@ -401,8 +549,19 @@ dialog h2 { margin-bottom: 1rem; font-size: 1.15rem; font-weight: 650; overflow-
   .row-actions button.secondary { border-color: var(--line-2); }
   .row-actions button { min-height: 2.25rem; padding: 0.2rem 0.6rem; }
 
-  .graph { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+  /* No wires: each card already says where it goes. The hub becomes a
+     strip between the routes and the targets. */
+  .graph { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
   .edges { display: none; }
+  .node.source::after, .node.target::before { display: none; }
+  .node .row-actions button, .node .row-actions button.link { min-height: 2.25rem; border-color: transparent; }
+  .hub {
+    grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 0.75rem;
+    min-width: 0; padding: 0.5rem 0.85rem; border-radius: 8px; box-shadow: none; text-align: left;
+  }
+  .hub::before, .hub::after { display: none; }
+  .hub strong { font-size: 0.95rem; }
+  #hub-health { margin: 0 0 0 auto; }
 
   /* Providers: name and key on one line, then the URL and its routes. */
   .providers tr { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.75rem; }

@@ -335,7 +335,7 @@ function traffic(s) {
 }
 
 function sourceNode(s, lock) {
-  const flags = { 'is-selected': s.name !== '' && s.name === selected, 'is-live': s.live };
+  const flags = { 'is-selected': s.name !== '' && s.name === selected, 'is-related': s.to === related, 'is-live': s.live };
   if (s.name === '') {
     return el('div', { class: classes('node source rest', flags), 'data-source': '' },
       el('strong', { text: 'everything else' }),

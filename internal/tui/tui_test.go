@@ -458,9 +458,12 @@ func TestOverviewShowsRoutesProvidersAndActivity(t *testing.T) {
 		r.h.Activity.Record(e)
 	}
 	r.press("r")
+	r.send(tea.WindowSizeMsg{Width: 120, Height: 30}) // the widest route row fits
 	r.wantView(
 		"Routes (2)", "Providers (2)", "Recent requests",
-		"shunt/sonnet", "2 (1 failed)", "200 8s ago", "no key: press K", // deepseek has no key
+		"shunt/sonnet", "━━▶ deepseek · deepseek-flash", "2 (1 failed)", "200 8s ago",
+		"no key: press K (alias)", // deepseek has no key
+		"everything else", "━━▶ anthropic", "unchanged",
 		"kimi", "literal", "https://api.kimi.example/anthropic",
 		"claude-fable-5-2", "anthropic", "rejected", "529",
 	)
@@ -483,6 +486,9 @@ func TestLayoutFitsEveryHeight(t *testing.T) {
 			r.press("down")
 		}
 		sec, _ := r.m.selected()
+		if r.m.sec == routesSec {
+			sec = "shunt/" + sec
+		}
 		for h := 11; h <= 60; h++ { // 11: header, footer with a result line, one list
 			r.send(tea.WindowSizeMsg{Width: 100, Height: h})
 			v := r.view()
@@ -495,9 +501,121 @@ func TestLayoutFitsEveryHeight(t *testing.T) {
 			if h >= 16 && !(strings.Contains(v, "Routes (13)") && strings.Contains(v, "Providers (14)")) {
 				t.Fatalf("height %d: a list is missing:\n%s", h, v)
 			}
+			if strings.Contains(v, "everything else") && strings.Count(v, "shunt/") != 13 {
+				t.Fatalf("height %d: everything else shown before every route:\n%s", h, v)
+			}
 		}
 		r.press("tab")
 	}
+}
+
+// Every route row tells where the route goes without selecting it.
+func TestRouteRowsShowTheirTarget(t *testing.T) {
+	r := newRig(t, twoProviders+`[routes.coder]
+provider = "deepseek"
+model = "deepseek-flash"
+
+[routes.cheap]
+provider = "kimi"
+model = "kimi-k3"
+`)
+	provider := map[string]string{"cheap": "kimi", "coder": "deepseek", "sonnet": "deepseek"}
+	for _, size := range [][2]int{{80, 24}, {50, 12}} {
+		r.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		lines := strings.Split(ansi.Strip(r.view()), "\n")
+		if len(lines) != size[1] || !strings.Contains(strings.Join(lines[size[1]-3:], "\n"), "q quit") {
+			t.Fatalf("%v: footer not at the bottom:\n%s", size, r.view())
+		}
+		rows, selected := 0, false
+		for _, l := range lines {
+			row, ok := strings.CutPrefix(strings.TrimPrefix(strings.TrimPrefix(l, "> "), "  "), "shunt/")
+			if !ok {
+				continue
+			}
+			rows++
+			selected = selected || strings.HasPrefix(l, "> ")
+			name, _, _ := strings.Cut(row, " ")
+			if !strings.Contains(row, "──▶ "+provider[name]+" · ") {
+				t.Fatalf("%v: route row %q lacks its target", size, l)
+			}
+		}
+		if rows == 0 || !selected {
+			t.Fatalf("%v: %d route rows, selected shown %v:\n%s", size, rows, selected, r.view())
+		}
+	}
+	r.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	r.wantView("Routes (3)", "everything else", "──▶ anthropic", "unchanged", "> shunt/cheap")
+}
+
+// The everything-else row is never selected and never costs a row of either
+// list, the selected row or the footer.
+func TestRestRowGivesWayFirst(t *testing.T) {
+	cfg := twoProviders
+	providers := []string{"deepseek", "kimi"}
+	for i := range 6 {
+		cfg += fmt.Sprintf("[providers.p%02d]\nbase_url = \"https://p%02d.example/anthropic\"\n", i, i)
+		providers = append(providers, fmt.Sprintf("p%02d", i))
+	}
+	r := newRig(t, cfg)
+	r.wantView("everything else")
+	r.press("down", "down")
+	r.wantView("> shunt/sonnet")
+	unfocused := "Providers (8)"
+	for _, selected := range []string{"shunt/sonnet", "p03"} {
+		if selected == "p03" {
+			r.press("tab", "down", "down", "down", "down", "down")
+			unfocused = "Routes (1)"
+		}
+		for h := 9; h <= 30; h++ {
+			r.send(tea.WindowSizeMsg{Width: 100, Height: h})
+			v := r.view()
+			rows := map[string]bool{}
+			for _, l := range strings.Split(ansi.Strip(v), "\n") {
+				name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(l, "> "), "  "), " ")
+				rows[name] = true
+			}
+			if !strings.Contains(v, "> "+selected) || !strings.Contains(v, "q quit") {
+				t.Fatalf("height %d: selected row or footer missing:\n%s", h, v)
+			}
+			// 12: header 2, blank, both lists with one row each, rule, footer.
+			if strings.Contains(v, unfocused) != (h >= 12) {
+				t.Fatalf("height %d: %s shown %v:\n%s", h, unfocused, !(h >= 12), v)
+			}
+			if !strings.Contains(v, "everything else") {
+				continue
+			}
+			// The unfocused list is capped to a third of the room either way.
+			want := []string{"shunt/sonnet"}
+			if selected == "p03" {
+				want = append(want, providers...)
+			}
+			for _, name := range want {
+				if !rows[name] {
+					t.Fatalf("height %d: everything else shown but row %s is not:\n%s", h, name, v)
+				}
+			}
+		}
+	}
+}
+
+// A request that ended moments ago marks its route live, by glyph as well
+// as color.
+func TestLiveRouteIsMarked(t *testing.T) {
+	r := newRig(t, twoProviders)
+	now := time.Now()
+	r.m.now = func() time.Time { return now }
+	r.h.Activity.Record(admin.Entry{Time: now.Add(-30 * time.Second), Route: "sonnet", Target: "deepseek", Status: 200, Ms: 25000})
+	r.press("tab", "r") // the route row is not selected, so its styles show
+	r.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for _, l := range strings.Split(r.view(), "\n") {
+		if strings.Contains(l, "shunt/sonnet") {
+			if !strings.Contains(ansi.Strip(l), "200 30s ago") || !strings.Contains(l, okStyle.Render("━━▶ deepseek · deepseek-flash")) {
+				t.Fatalf("live route row not marked: %q", l)
+			}
+			return
+		}
+	}
+	t.Fatalf("no route row:\n%s", r.view())
 }
 
 // A tick while the daemon has not answered the last refresh asks nothing
@@ -538,8 +656,8 @@ func TestViewFillsTheScreen(t *testing.T) {
 			}
 		}
 	}
-	// 40 lines: header 2, blank, lists 4+1+4, rule, footer 2 leave 23 request rows.
-	if v := r.view(); !strings.Contains(v, "model-39") || !strings.Contains(v, "model-17 ") || strings.Contains(v, "model-16 ") {
+	// 40 lines: header 2, blank, lists 4+1+4, rule, footer 2 leave 22 request rows.
+	if v := r.view(); !strings.Contains(v, "model-39") || !strings.Contains(v, "model-18 ") || strings.Contains(v, "model-17 ") {
 		t.Fatalf("requests do not fill the room left:\n%s", v)
 	}
 }

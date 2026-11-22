@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"shunt/internal/admin"
 	"shunt/internal/config"
 )
 
@@ -141,82 +141,116 @@ func text(s string) cell { return cell{s, plain} }
 type table struct {
 	head []string
 	rows [][]cell
+	tail []cell // an unselectable last row; nil: none
 }
 
-// lines renders rows first..last-1 under the header, columns aligned; row
-// cur is marked when the section has the focus.
-func (t table) lines(first, last, cur int, focused bool) []string {
+// widths are the column widths, the tail included, so rows line up whether
+// it is shown or not.
+func (t table) widths() []int {
 	widths := make([]int, len(t.head))
 	for i, h := range t.head {
 		widths[i] = lipgloss.Width(h)
 	}
-	for _, row := range t.rows {
+	for _, row := range slices.Concat(t.rows, [][]cell{t.tail}) {
 		for i, c := range row {
 			widths[i] = max(widths[i], lipgloss.Width(c.s))
 		}
 	}
-	// gap follows every column but the last.
-	gap := func(s string, col int) string {
-		if col == len(widths)-1 {
-			return ""
-		}
-		return strings.Repeat(" ", widths[col]-lipgloss.Width(s)+2)
-	}
-	var head strings.Builder
-	for i, h := range t.head {
-		head.WriteString(h + gap(h, i))
-	}
-	out := []string{dim.Render("  " + strings.TrimRight(head.String(), " "))}
-	for r := first; r < last; r++ {
-		var line strings.Builder
-		selected := focused && r == cur
-		for i, c := range t.rows[r] {
-			if selected || c.s == "" {
-				line.WriteString(c.s)
-			} else {
-				line.WriteString(c.st.Render(c.s))
-			}
-			line.WriteString(gap(c.s, i))
-		}
-		if selected {
-			out = append(out, block.Render("> "+strings.TrimRight(line.String(), " ")))
+	return widths
+}
+
+// line renders one row in columns of widths.
+func line(row []cell, widths []int, selected bool) string {
+	var b strings.Builder
+	for i, c := range row {
+		if selected || c.s == "" {
+			b.WriteString(c.s)
 		} else {
-			out = append(out, "  "+strings.TrimRight(line.String(), " "))
+			b.WriteString(c.st.Render(c.s))
 		}
+		if i < len(widths)-1 { // a gap follows every column but the last
+			b.WriteString(strings.Repeat(" ", widths[i]-lipgloss.Width(c.s)+2))
+		}
+	}
+	s := strings.TrimRight(b.String(), " ")
+	if selected {
+		return block.Render("> " + s)
+	}
+	return "  " + s
+}
+
+// lines renders rows first..last-1 under the header, then the tail if asked;
+// row cur is marked when the section has the focus.
+func (t table) lines(first, last, cur int, focused, tail bool) []string {
+	widths := t.widths()
+	head := make([]cell, len(t.head))
+	for i, h := range t.head {
+		head[i] = text(h)
+	}
+	out := []string{dim.Render(line(head, widths, false))}
+	for r := first; r < last; r++ {
+		out = append(out, line(t.rows[r], widths, focused && r == cur))
+	}
+	if tail && t.tail != nil {
+		out = append(out, line(t.tail, widths, false))
 	}
 	return out
 }
 
+const (
+	arrow     = "──▶ "
+	liveArrow = "━━▶ "
+)
+
 func (m *model) routesTable() table {
-	t := table{head: []string{"NAME", "STATE", "PROVIDER", "UPSTREAM MODEL", "REQS", "LAST", "MODEL ID"}}
-	for _, n := range m.names(routesSec) {
-		r := m.st.Config.Routes[n]
-		prov, note := text(r.Provider), cell{okMark + "ready", okStyle}
-		_, exists := m.st.Config.Providers[r.Provider]
-		switch key := m.st.Keys[r.Provider]; {
-		case !exists:
-			prov.st, note = bad, cell{badMark + "no such provider", bad}
-		case key == config.KeyMissing:
-			note = cell{warnMark + "no key: press K", warn}
-		case key == config.KeyInvalid:
-			note = cell{badMark + "key invalid", bad}
-		}
-		if admin.IsAlias(n) {
-			note.s += " (alias)"
+	g := buildGraph(m.st, m.act, m.now())
+	t := table{head: []string{"ROUTE", "TARGET", "STATE", "REQS", "LAST"}}
+	rest := len(g.sources) - 1
+	for i, s := range g.sources[:rest] {
+		to := g.targets[g.edge[i]]
+		state := targetCell(to.state)
+		if s.alias {
+			state.s += " (alias)"
 		}
 		reqs, last := text("-"), text("-")
-		if m.act != nil {
-			if s, ok := m.act.Routes[n]; ok {
-				reqs.s = fmt.Sprint(s.Requests)
-				if s.Errors > 0 {
-					reqs = cell{fmt.Sprintf("%d (%d failed)", s.Requests, s.Errors), warn}
-				}
-				last = cell{fmt.Sprintf("%d %s ago", s.Status, age(m.now().Sub(s.Time))), statusStyle(s.Status)}
+		if s.stats != nil {
+			reqs.s = fmt.Sprint(s.stats.Requests)
+			if s.stats.Errors > 0 {
+				reqs = cell{fmt.Sprintf("%d (%d failed)", s.stats.Requests, s.stats.Errors), warn}
 			}
+			last = cell{fmt.Sprintf("%d %s ago", s.stats.Status, age(m.now().Sub(s.stats.Time))), statusStyle(s.stats.Status)}
 		}
-		t.rows = append(t.rows, []cell{{n, bold}, note, prov, text(r.Model), reqs, last, {config.WirePrefix + n, dim}})
+		dest := destCell(s.live, to.provider+" · "+to.model)
+		if to.state == stateNoProvider {
+			dest.st = bad
+		}
+		t.rows = append(t.rows, []cell{{config.WirePrefix + s.name, bold}, dest, state, reqs, last})
 	}
+	dest := destCell(g.sources[rest].live, g.targets[g.edge[rest]].provider)
+	if !g.sources[rest].live {
+		dest.st = dim
+	}
+	t.tail = []cell{{g.sources[rest].name, dim}, dest, {g.targets[g.edge[rest]].state, dim}}
 	return t
+}
+
+// destCell is a row's arrow and target. A route that just carried a request
+// gets the heavy arrow, so the mark does not rest on color alone.
+func destCell(live bool, to string) cell {
+	if live {
+		return cell{liveArrow + to, okStyle}
+	}
+	return text(arrow + to)
+}
+
+func targetCell(state string) cell {
+	switch state {
+	case stateReady:
+		return cell{okMark + stateReady, okStyle}
+	case stateNoKey:
+		return cell{warnMark + stateNoKey + ": press K", warn}
+	}
+	return cell{badMark + state, bad}
 }
 
 func (m *model) providersTable() table {
@@ -288,19 +322,25 @@ func heading(title string, st lipgloss.Style, width int) string {
 // and the column header (or the hint of an empty part).
 const partFixed = 2
 
-// show renders p with at most rows rows, scrolled to keep cur in view.
+// show renders p with at most rows rows, scrolled to keep cur in view. The
+// tail shows only when every other row fits, so it gives way first.
 func (p part) show(rows, cur int, focused bool, width int) []string {
 	out := []string{p.heading(focused, width)}
 	n := len(p.table.rows)
+	tail := rows > n
 	if n == 0 {
-		return append(out, dim.Render("  "+p.empty))
+		out = append(out, dim.Render("  "+p.empty))
+		if tail && p.table.tail != nil {
+			out = append(out, line(p.table.tail, p.table.widths(), false))
+		}
+		return out
 	}
 	first, last := 0, n
 	if rows < n {
 		first = min(max(0, cur-rows+1), n-rows)
 		last = first + rows
 	}
-	return append(out, p.table.lines(first, last, cur, focused)...)
+	return append(out, p.table.lines(first, last, cur, focused, tail)...)
 }
 
 // body lays out both sections and, when room is left, the recent requests,
@@ -320,13 +360,19 @@ func (m *model) body(avail int) []string {
 	const fixed = 2*partFixed + 1 // a blank line between the parts
 
 	focus, other := m.sec, 1-m.sec
-	switch free := avail - fixed; {
+	free := avail - fixed
+	switch {
 	case avail <= 0 || want[0]+want[1] <= free:
 	case free >= 2: // both lists, the focused one gets most of the room
 		want[other] = min(want[other], max(1, free/3))
 		want[focus] = min(want[focus], free-want[other])
 	default: // only the focused list fits
 		return parts[focus].show(max(1, avail-partFixed), m.cursor[focus], true, m.width)
+	}
+	// The routes' tail takes only room left once both lists have their
+	// share, so it never costs either list a row.
+	if want[routesSec] == len(parts[routesSec].table.rows) && (avail <= 0 || want[0]+want[1] < free) {
+		want[routesSec]++
 	}
 	var out []string
 	for i, p := range parts {
@@ -382,7 +428,7 @@ func (m *model) recent(n int) []string {
 		})
 	}
 	out := []string{"", heading("Recent requests", bold, m.width)}
-	return append(out, t.lines(0, len(t.rows), -1, false)...)
+	return append(out, t.lines(0, len(t.rows), -1, false, false)...)
 }
 
 func (m *model) formLines() []string {

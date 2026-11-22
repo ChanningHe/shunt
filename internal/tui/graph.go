@@ -85,7 +85,7 @@ func targetState(st *admin.State, provider string) string {
 		return stateNoProvider
 	}
 	switch st.Keys[provider] {
-	case config.KeyMissing:
+	case config.KeyMissing, "":
 		return stateNoKey
 	case config.KeyInvalid:
 		return stateKeyInvalid

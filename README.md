@@ -150,7 +150,7 @@ for NixOS, nix-darwin and home-manager:
 ## Development
 
 ```sh
-.claude/check                                          # gofmt, go vet, go test -race
+just check                                             # gofmt, go vet, go test -race
 nix flake check                                        # package build + NixOS VM test
 go test -fuzz FuzzI2 -fuzztime 1m ./internal/router    # fuzz the credential guard
 DEEPSEEK_API_KEY=... e2e/run.sh                        # real Claude Code + shunt + DeepSeek

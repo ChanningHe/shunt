@@ -7,7 +7,16 @@ default:
 
 # gofmt, go vet, go test -race
 check:
-    .claude/check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    unformatted=$(gofmt -l .)
+    if [[ -n $unformatted ]]; then
+      echo "gofmt needed:" >&2
+      echo "$unformatted" >&2
+      exit 1
+    fi
+    go vet ./...
+    go test -race -count=1 ./...
 
 # tag HEAD as vVERSION and point the Homebrew formula at it; nothing is pushed
 release version:
@@ -19,7 +28,7 @@ release version:
     [[ $(git branch --show-current) == main ]] || { echo "not on main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "the working tree is not clean" >&2; exit 1; }
     git rev-parse -q --verify "refs/tags/$tag" >/dev/null && { echo "tag $tag exists" >&2; exit 1; }
-    .claude/check
+    just check
     rev=$(git rev-parse HEAD)
     git tag -a "$tag" -m "$tag"
     awk -v repo={{ repo }} -v tag="$tag" -v rev="$rev" '

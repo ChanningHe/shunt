@@ -22,6 +22,7 @@ buildGoModule {
   ldflags = [
     "-s"
     "-w"
+    "-X shunt/internal/cli.Version=${version}"
   ];
 
   # The tests listen on loopback, which the Darwin sandbox denies by default.

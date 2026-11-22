@@ -45,8 +45,16 @@ func commands() []command {
 	}
 }
 
+// Version is the release, set at build time with
+// -ldflags "-X shunt/internal/cli.Version=1.2.3".
+var Version = "dev"
+
 // Run executes the shunt command line args, writing to stdout and stderr.
 func Run(stdout, stderr io.Writer, args []string) error {
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "version") {
+		fmt.Fprintln(stdout, "shunt", Version)
+		return nil
+	}
 	return runGroup(stdout, stderr, "", commands(), args)
 }
 

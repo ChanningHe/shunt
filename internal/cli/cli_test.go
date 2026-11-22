@@ -87,6 +87,14 @@ func TestDispatchUnknownAndHelp(t *testing.T) {
 	}
 }
 
+func TestVersion(t *testing.T) {
+	for _, arg := range []string{"--version", "version"} {
+		if out, err := runCmd(t, arg); err != nil || out != "shunt "+Version+"\n" {
+			t.Errorf("%s: err=%v out=%q", arg, err, out)
+		}
+	}
+}
+
 // Review 2: shunt's own options must not shadow claude's (--model).
 // --sonnet-model is gone: aliases follow the routes.
 func TestClaudeOwnOptionsDoNotShadowClaude(t *testing.T) {

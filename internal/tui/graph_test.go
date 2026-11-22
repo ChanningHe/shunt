@@ -113,9 +113,9 @@ func TestBuildGraph(t *testing.T) {
 			},
 		},
 		{
-			name: "anthropic idle",
+			name: "a request that ended exactly ten seconds ago is no longer live",
 			st:   graphState(nil, nil),
-			act:  &admin.Activity{Recent: []admin.Entry{{Time: ago(60), Target: "anthropic", Status: 200, Ms: 100}}},
+			act:  &admin.Activity{Recent: []admin.Entry{{Time: ago(12), Target: "anthropic", Status: 200, Ms: 2000}}},
 			want: graph{sources: []source{rest}, targets: []target{anth}, edge: []int{0}},
 		},
 		{

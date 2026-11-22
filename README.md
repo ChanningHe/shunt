@@ -51,9 +51,11 @@ shunt reload            re-read the config files after a hand edit
 shunt serve             run the router
 ```
 
-Every command takes `--help`. The TUI and the web UI do the same things as `provider` and `route`, and show
-live traffic: `anthropic` for the main thread, the provider name for a routed subagent, `rejected` for a
-request shunt refused.
+Every command takes `--help`. The TUI and the web UI do the same things as `provider` and `route`. Both show
+where each route goes: the web UI as a diagram (routes on the left, shunt in the middle, provider and model
+on the right), the TUI as one `shunt/<route> ──▶ provider · model` line per route. A route that carried a
+request in the last ten seconds is marked live. Both also list recent requests: `anthropic` for the main
+thread, the provider name for a routed subagent, `rejected` for a request shunt refused.
 
 ## What gets routed
 

@@ -1,6 +1,9 @@
 class Shunt < Formula
   desc "Local Claude Code router: subagents go to a third-party provider"
   homepage "https://github.com/ChanningHe/shunt"
+  url "https://github.com/ChanningHe/shunt.git",
+      tag:      "v0.1.0",
+      revision: "cd6515b02ee3b3d758c3b8d82dc4523b1411c481"
   head "https://github.com/ChanningHe/shunt.git", branch: "main"
 
   depends_on "go" => :build

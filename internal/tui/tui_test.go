@@ -462,7 +462,7 @@ func TestOverviewShowsRoutesProvidersAndActivity(t *testing.T) {
 	r.wantView(
 		"Routes (2)", "Providers (2)", "Recent requests",
 		"shunt/sonnet", "━━▶ deepseek · deepseek-flash", "2 (1 failed)", "200 8s ago",
-		"no key: press K (alias)", // deepseek has no key
+		"no key (alias)", // deepseek has no key
 		"everything else", "━━▶ anthropic", "unchanged",
 		"kimi", "literal", "https://api.kimi.example/anthropic",
 		"claude-fable-5-2", "anthropic", "rejected", "529",
@@ -544,7 +544,7 @@ model = "kimi-k3"
 		}
 	}
 	r.send(tea.WindowSizeMsg{Width: 80, Height: 24})
-	r.wantView("Routes (3)", "everything else", "──▶ anthropic", "unchanged", "> shunt/cheap")
+	r.wantView("Routes (3)", "everything else", "──▶ anthropic", "unchanged", "> shunt/cheap", "REQS")
 }
 
 // The everything-else row is never selected and never costs a row of either

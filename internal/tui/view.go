@@ -248,7 +248,7 @@ func targetCell(state string) cell {
 	case stateReady:
 		return cell{okMark + stateReady, okStyle}
 	case stateNoKey:
-		return cell{warnMark + stateNoKey + ": press K", warn}
+		return cell{warnMark + stateNoKey, warn}
 	}
 	return cell{badMark + state, bad}
 }

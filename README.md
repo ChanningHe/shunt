@@ -16,8 +16,8 @@ Claude Code ──► shunt (127.0.0.1:27486) ──► api.anthropic.com      e
 ## Quick start
 
 ```sh
-go build -o ~/.local/bin/shunt .         # or use the Nix flake, see below
-shunt serve &                            # or install a service unit from deploy/
+go build -o ~/.local/bin/shunt .         # or Homebrew or the Nix flake, see below
+shunt serve &                            # or run it as a service, see below
 
 shunt provider add deepseek -b https://api.deepseek.com/anthropic
 shunt provider set-key deepseek          # reads the key from stdin, never from an argument
@@ -32,7 +32,16 @@ Then give a subagent the model `shunt/coder`:
 - every subagent without its own model: `CLAUDE_CODE_SUBAGENT_MODEL=shunt/coder`
 
 To run it as a service, see the header of `deploy/shunt.service` (systemd user unit) or
-`deploy/local.shunt.plist` (launchd).
+`deploy/local.shunt.plist` (launchd), or use Homebrew:
+
+```sh
+brew tap channinghe/shunt https://github.com/ChanningHe/shunt
+brew install shunt                       # --HEAD for the main branch
+brew services start shunt                # instead of shunt serve &
+```
+
+The Homebrew service does not see `XDG_CONFIG_HOME` or `SHUNT_CONFIG_DIR` from your shell; it uses
+`~/.config/shunt`.
 
 **Off switch.** With routing on and the router down, all of Claude Code fails. Run `shunt off` and restart
 your sessions; `shunt off` works without the router.
@@ -121,8 +130,8 @@ for NixOS, nix-darwin and home-manager:
   paths to key files; keys themselves never enter the Nix store.
 - After a rebuild that changes `settings`, run `systemctl --user restart shunt` if the service was not
   restarted for you.
-- The NixOS module is tested in a VM. The nix-darwin and home-manager modules are only evaluated; nothing
-  has been run on macOS.
+- The NixOS module is tested in a VM. The nix-darwin and home-manager modules are only evaluated, and the
+  Homebrew formula is only tested with Homebrew on Linux; nothing has been run on macOS.
 
 ## Good to know
 
@@ -145,4 +154,5 @@ for NixOS, nix-darwin and home-manager:
 nix flake check                                        # package build + NixOS VM test
 go test -fuzz FuzzI2 -fuzztime 1m ./internal/router    # fuzz the credential guard
 DEEPSEEK_API_KEY=... e2e/run.sh                        # real Claude Code + shunt + DeepSeek
+just release 1.2.3                                     # tag v1.2.3, point the formula at it; then push
 ```

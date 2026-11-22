@@ -280,8 +280,6 @@ label { display: block; margin: 0 0 0.35rem; font-weight: 600; font-size: 0.85re
 .grid tbody tr:hover { background: linear-gradient(90deg, transparent, var(--hover) 1.5rem, var(--hover) calc(100% - 1.5rem), transparent); }
 .grid .num { text-align: right; white-space: nowrap; }
 .grid strong { font-weight: 650; }
-.sub { margin-top: 0.2rem; color: var(--muted); }
-.sub code { background: none; padding: 0; color: var(--ink-2); }
 .cell { min-width: 0; }
 
 /* Row actions stay quiet until pointed at. */
@@ -293,14 +291,6 @@ label { display: block; margin: 0 0 0.35rem; font-weight: 600; font-size: 0.85re
 .row-actions button.danger-text:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
 .grid td[data-label="Actions"] { width: 1%; white-space: nowrap; }
 
-/* Routes: name, then where it goes. */
-.routes .name strong { font-size: 1rem; }
-.routes .id { font-size: 0.82rem; }
-.routes td[data-label="Route"] { width: 24%; }
-.routes td[data-label="Sends to"] { width: 30%; }
-.target::before { content: "\2192"; color: var(--muted); margin-right: 0.45rem; font-weight: 400; }
-.target strong { margin-right: 0.15rem; }
-.routes td[data-label="Sends to"] .sub { padding-left: 1.3rem; font-size: 0.85rem; }
 .test { margin-top: 0.2rem; font-size: 0.85rem; font-weight: 500; }
 .test::before { margin-right: 0.35rem; font-weight: 700; }
 .test.ok-text::before { content: "\2713"; }
@@ -314,6 +304,46 @@ label { display: block; margin: 0 0 0.35rem; font-weight: 600; font-size: 0.85re
 .recent td[data-label="Time"], .recent td[data-label="Duration"] { color: var(--muted); }
 .recent td[data-label="Model"] .mono { color: var(--ink); }
 .recent td[data-label="Sent to"] { font-size: 0.9rem; }
+
+/* ---- routing graph ----------------------------------------------------- */
+
+/* Three columns under one svg; the svg is drawn in this box's coordinates. */
+.graph {
+  position: relative;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center; gap: 1rem 4rem;
+}
+.edges {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none;
+}
+.edges path { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
+.edges path.is-related { stroke: var(--muted); }
+.edges path.is-selected { stroke: var(--ink); stroke-width: 2; }
+.edges path.is-live { stroke-dasharray: 6 4; }
+.col, .nodes { position: relative; display: grid; gap: 0.6rem; min-width: 0; }
+.node {
+  position: relative; min-width: 0;
+  background: var(--field); border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+.node.is-related { border-color: var(--muted); }
+.node.is-selected { border-color: var(--ink); }
+.node.is-live { box-shadow: 0 0 0 2px var(--ok-bg); }
+.node-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+button.pick {
+  min-height: 0; padding: 0; border: 0; background: none; color: inherit;
+  font-weight: 650; white-space: normal; text-align: left;
+}
+button.pick:hover:not(:disabled) { background: none; text-decoration: underline; }
+.dest { color: var(--ink-2); }
+.stats { color: var(--muted); font-size: 0.85rem; }
+.node .row-actions { justify-content: flex-start; flex-wrap: wrap; margin: 0.3rem 0 0; }
+.hub {
+  display: grid; justify-items: center; gap: 0.15rem;
+  padding: 0.75rem 1rem; border: 2px solid var(--ink); border-radius: 8px;
+  background: var(--field); text-align: center;
+}
 
 /* ---- dialogs ----------------------------------------------------------- */
 
@@ -371,9 +401,8 @@ dialog h2 { margin-bottom: 1rem; font-size: 1.15rem; font-weight: 650; overflow-
   .row-actions button.secondary { border-color: var(--line-2); }
   .row-actions button { min-height: 2.25rem; padding: 0.2rem 0.6rem; }
 
-  .routes td[data-label="Route"], .routes td[data-label="Sends to"] { width: 100%; }
-  .routes td[data-label="Sends to"] { margin-top: 0.5rem; }
-  .routes td[data-label="Traffic"] { margin-top: 0.4rem; font-size: 0.88rem; }
+  .graph { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+  .edges { display: none; }
 
   /* Providers: name and key on one line, then the URL and its routes. */
   .providers tr { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.75rem; }

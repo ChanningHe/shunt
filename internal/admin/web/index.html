@@ -8,6 +8,7 @@
 <title>shunt</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
+<script src="graph.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -45,15 +46,27 @@
 
     <section class="sec" aria-labelledby="routes-h">
       <div class="sec-head">
-        <h2 id="routes-h">Routes <span id="routes-count" class="count"></span></h2>
-        <button id="add-route" type="button">Add route</button>
+        <h2 id="routes-h">Routing <span id="routes-count" class="count"></span></h2>
         <p class="lead">A subagent whose model is <code>shunt/NAME</code> is sent to the route's provider and upstream model. Everything else goes to Anthropic unchanged.</p>
       </div>
-      <table class="grid routes">
-        <thead><tr><th>Route</th><th>Sends to</th><th>Traffic</th><th><span class="sr">Actions</span></th></tr></thead>
-        <tbody id="routes"></tbody>
-      </table>
-      <p id="routes-empty" class="empty" hidden>No routes yet.</p>
+      <div id="graph" class="graph">
+        <svg id="edges" class="edges" aria-hidden="true"></svg>
+        <div class="col col-sources">
+          <div id="sources" class="nodes"></div>
+          <div class="add-route">
+            <button id="add-route" type="button" class="secondary" data-key="add-route">+ Add route</button>
+            <p id="add-route-why" class="muted small" hidden></p>
+          </div>
+        </div>
+        <div class="col col-hub">
+          <div id="hub" class="hub">
+            <strong>shunt</strong>
+            <span id="hub-listen" class="mono small"></span>
+            <span id="hub-health" class="small"></span>
+          </div>
+        </div>
+        <div id="targets" class="col col-targets nodes"></div>
+      </div>
     </section>
 
     <section class="sec" aria-labelledby="providers-h">

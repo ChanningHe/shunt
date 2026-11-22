@@ -21,6 +21,7 @@ func TestWebAssetsServed(t *testing.T) {
 	for path, ctype := range map[string]string{
 		Prefix + "/":          "text/html; charset=utf-8",
 		Prefix + "/app.js":    "text/javascript; charset=utf-8",
+		Prefix + "/graph.js":  "text/javascript; charset=utf-8",
 		Prefix + "/style.css": "text/css; charset=utf-8",
 		Prefix + "/icon.svg":  "image/svg+xml",
 	} {
@@ -87,7 +88,25 @@ func TestWebAssetsAreSelfContained(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seen != 4 {
-		t.Errorf("embedded %d files, want index.html, app.js, style.css and icon.svg", seen)
+	if seen != 5 {
+		t.Errorf("embedded %d files, want index.html, app.js, graph.js, style.css and icon.svg", seen)
+	}
+}
+
+// app.js calls into graph.js, and the edges are drawn into a static <svg>
+// whose namespaceURI app code borrows instead of spelling the SVG URL.
+func TestWebGraphMarkup(t *testing.T) {
+	b, err := fs.ReadFile(webRoot, "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	graph := strings.Index(page, `<script src="graph.js" defer></script>`)
+	app := strings.Index(page, `<script src="app.js" defer></script>`)
+	if graph < 0 || app < 0 || graph > app {
+		t.Errorf("index.html must load graph.js before app.js, both deferred")
+	}
+	if !regexp.MustCompile(`<svg [^>]*aria-hidden="true"[^>]*></svg>`).MatchString(page) {
+		t.Errorf("index.html lacks the static aria-hidden <svg> for the edges")
 	}
 }

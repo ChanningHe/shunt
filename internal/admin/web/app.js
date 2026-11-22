@@ -1,11 +1,10 @@
 // shunt web UI: the same management API the CLI and TUI use.
 // Every server or user string reaches the DOM through textContent, value or
 // setAttribute only. The admin token lives in a variable of this tab.
+// graph.js, loaded first, provides WIRE_PREFIX, isAlias and the graph.
 'use strict';
 
 const API = '/_shunt/api/v1/';
-const WIRE_PREFIX = 'shunt/';
-const ALIASES = ['sonnet', 'opus', 'haiku', 'fable'];
 const BASE_URL_EXAMPLE = 'https://api.example.com/anthropic';
 const MESSAGES_PATH = '/v1/messages';
 const NOTICE_MS = 6000;
@@ -16,13 +15,15 @@ const RECENT_ROWS = 25;
 let token = null;
 let state = null;
 let activity = null;
-let shown = ''; // what the tables currently show, serialized
+let graph = null; // buildGraph of what is shown
+let selected = null; // route name; the first route unless the user picked one
+let related = null; // target key whose routes are highlighted, or null
+let shown = ''; // what the page currently shows, serialized
 let syncNotice = null;
 const tests = new Map(); // route name -> { busy } or { ok, text }
 
 const $ = (id) => document.getElementById(id);
 const sorted = (obj) => Object.keys(obj || {}).sort();
-const isAlias = (name) => ALIASES.includes(name);
 const aliasWarning = (name) =>
   `While this route exists, a main thread using the ${name} alias gets 400 errors (routes serve subagents only).`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -100,6 +101,9 @@ function signOut(reason) {
   token = null;
   state = null;
   activity = null;
+  graph = null;
+  selected = null;
+  related = null;
   shown = '';
   tests.clear();
   showLogin(reason);
@@ -186,9 +190,16 @@ async function poll() {
     shown = ''; // the next good answer redraws, even if nothing else changed
     $('offline').textContent = e.message + ' Showing the last known state.';
     $('offline').hidden = false;
-    $('health').className = 'lamp bad';
-    $('health').textContent = 'unreachable';
+    setHealth('bad', 'unreachable');
   }
+}
+
+function setHealth(kind, text) {
+  $('health').hidden = false;
+  $('health').className = 'lamp ' + kind;
+  $('health').textContent = text;
+  $('hub-health').className = 'small ' + kind + '-text';
+  $('hub-health').textContent = text;
 }
 
 // locks says why config or keys changes are refused, or '' when allowed.
@@ -209,19 +220,23 @@ const hasProvider = (name) => Object.hasOwn(state.config.providers, name);
 
 // ---- rendering -----------------------------------------------------------
 
-// render redraws the page from state, activity and tests, unless nothing
-// changed; the focused control keeps the focus across a redraw.
+// render redraws the page from state, activity, tests and the selection,
+// unless nothing changed; the focused control keeps the focus across a
+// redraw. The graph is part of the comparison because its live marks
+// expire with time alone.
 function render() {
-  const next = JSON.stringify([state, activity, [...tests]]);
+  const g = buildGraph(state, activity, Date.now());
+  settleSelection(g);
+  graph = g;
+  const next = JSON.stringify([state, activity, [...tests], g, selected, related]);
   if (next === shown) return;
   shown = next;
   const focus = document.activeElement && document.activeElement.dataset.key;
 
   const lock = locks();
   $('listen').textContent = state.listen;
-  $('health').hidden = false;
-  $('health').className = 'lamp ' + (state.load_error ? 'bad' : 'ok');
-  $('health').textContent = state.load_error ? 'config error' : 'running';
+  $('hub-listen').textContent = state.listen;
+  setHealth(state.load_error ? 'bad' : 'ok', state.load_error ? 'config error' : 'running');
   const loadErr = $('load-error');
   loadErr.hidden = !state.load_error;
   loadErr.textContent = state.load_error
@@ -231,7 +246,7 @@ function render() {
   $('lock').hidden = reasons.length === 0 || Boolean(state.load_error);
   $('lock').textContent = reasons.length ? `Changes are disabled: ${reasons.join('; ')}.` : '';
   renderSetup();
-  renderRoutes(lock);
+  renderGraph(g, lock);
   renderProviders(lock);
   renderRecent();
   renderFiles();
@@ -280,65 +295,114 @@ function button(key, text, onclick, why, extra) {
 const KEY_KIND = { literal: 'ok', file: 'ok', missing: 'warn', invalid: 'bad' };
 const KEY_TEXT = { literal: 'key set', file: 'key file', missing: 'no key', invalid: 'key invalid' };
 
-// routeProblem says why a route cannot serve requests, or ''.
-function routeProblem(r) {
-  if (!hasProvider(r.provider)) return 'provider missing';
-  const k = keyState(r.provider);
-  return k === 'literal' || k === 'file' ? '' : KEY_TEXT[k] || 'key invalid';
+// settleSelection keeps one route selected: the first by default, the
+// neighbour of a deleted one. A related target that is gone is dropped.
+function settleSelection(g) {
+  const names = g.sources.slice(0, -1).map((s) => s.name);
+  if (!g.targets.some((t) => t.key === related)) related = null;
+  if (names.includes(selected)) return;
+  const was = graph ? graph.sources.findIndex((s) => s.name === selected) : -1;
+  selected = names.length ? names[Math.min(Math.max(was, 0), names.length - 1)] : null;
 }
 
-function traffic(name) {
-  const s = (activity.routes || {})[name];
+function select(name) {
+  selected = name;
+  related = null;
+  render();
+}
+
+function relate(key) {
+  related = related === key ? null : key;
+  render();
+}
+
+const classes = (base, flags) =>
+  [base, ...Object.entries(flags).filter(([, on]) => on).map(([name]) => name)].join(' ');
+
+function traffic(s) {
   const lines = [];
-  if (s) {
-    const last = `${plural(s.requests, 'request')} · last ${s.status} at ${clock(s.time)}`;
-    lines.push(el('div', null, el('span', { text: last }),
-      s.errors ? ' ' : null, s.errors ? badge('warn', `${s.errors} failed`) : null));
+  if (s.stats) {
+    const last = `${plural(s.stats.requests, 'request')} · last ${s.stats.status} at ${clock(s.stats.time)}`;
+    lines.push(el('div', { class: 'stats' }, el('span', { text: last }),
+      s.stats.errors ? ' ' : null, s.stats.errors ? badge('warn', `${s.stats.errors} failed`) : null));
   } else {
-    lines.push(el('div', { class: 'muted', text: 'no requests yet' }));
+    lines.push(el('div', { class: 'stats muted', text: 'no requests yet' }));
   }
-  const t = tests.get(name);
+  const t = tests.get(s.name);
   if (t && t.busy) lines.push(el('div', { class: 'test busy', text: 'testing…' }));
   else if (t) lines.push(el('div', { class: 'test wrap ' + (t.ok ? 'ok-text' : 'bad-text'), role: 'status', text: 'Test: ' + t.text }));
   return lines;
 }
 
-function renderRoutes(lock) {
-  const routes = state.config.routes;
-  const names = sorted(routes);
-  const rows = names.map((name) => {
-    const r = routes[name];
-    const id = WIRE_PREFIX + name;
-    const copyBtn = el('button', { type: 'button', class: 'link', 'data-key': `route:${name}:copy`, 'aria-label': 'Copy model ID ' + id, text: 'Copy' });
-    copyBtn.addEventListener('click', () => copy(id, copyBtn));
-    const problem = routeProblem(r);
-    const busy = tests.get(name) && tests.get(name).busy;
-    return el('tr', null,
-      cell('Route',
-        el('div', { class: 'name' }, el('strong', { text: name }), isAlias(name) ? ' ' : null,
-          isAlias(name) ? badge('warn', 'alias', aliasWarning(name)) : null),
-        el('div', { class: 'sub' }, el('code', { class: 'id', text: id }), ' ', copyBtn)),
-      cell('Sends to',
-        el('div', { class: 'target' }, el('strong', { text: r.provider }), ' ',
-          problem ? badge('bad', problem) : badge('ok', 'ready', 'provider and key are in place')),
-        el('div', { class: 'sub mono wrap', text: r.model })),
-      cell('Traffic', ...traffic(name)),
-      cell('Actions', el('div', { class: 'row-actions' },
-        button(`route:${name}:test`, 'Test', () => testRoute(name),
-          busy ? 'test running' : '', 'secondary'),
-        button(`route:${name}:edit`, 'Edit', () => openRoute(name), lock.config),
-        button(`route:${name}:delete`, 'Delete', () => deleteRoute(name), lock.config, 'secondary danger-text'))));
-  });
-  $('routes').replaceChildren(...rows);
-  $('routes-count').textContent = names.length || '';
-  $('routes').closest('table').hidden = names.length === 0;
-  $('routes-empty').hidden = names.length > 0;
-  const add = $('add-route');
-  const why = lock.config || (sorted(state.config.providers).length ? '' : 'add a provider first');
-  add.disabled = Boolean(why);
-  add.title = why;
+function sourceNode(s, lock) {
+  const flags = { 'is-selected': s.name !== '' && s.name === selected, 'is-live': s.live };
+  if (s.name === '') {
+    return el('div', { class: classes('node source rest', flags), 'data-source': '' },
+      el('strong', { text: 'everything else' }),
+      el('div', { class: 'dest', text: '→ Anthropic · unchanged' }));
+  }
+  const name = s.name;
+  const copyBtn = el('button', { type: 'button', class: 'link', 'data-key': `route:${name}:copy`, 'aria-label': 'Copy model ID ' + s.id, text: 'Copy id' });
+  copyBtn.addEventListener('click', () => copy(s.id, copyBtn));
+  const busy = tests.get(name) && tests.get(name).busy;
+  return el('div', { class: classes('node source', flags), 'data-source': name },
+    el('div', { class: 'node-head' },
+      el('button', {
+        type: 'button', class: 'pick', 'data-key': `route:${name}:select`,
+        'aria-pressed': String(flags['is-selected']), onclick: () => select(name),
+      }, el('code', { class: 'id', text: s.id })),
+      s.alias ? badge('warn', 'alias', aliasWarning(name)) : null),
+    el('div', { class: 'dest wrap', text: `→ ${s.provider} · ${s.model}` }),
+    ...traffic(s),
+    el('div', { class: 'row-actions' },
+      copyBtn,
+      button(`route:${name}:test`, 'Test', () => testRoute(name), busy ? 'test running' : ''),
+      button(`route:${name}:edit`, 'Edit', () => openRoute(name), lock.config),
+      button(`route:${name}:delete`, 'Delete', () => deleteRoute(name), lock.config, 'secondary danger-text')));
 }
 
+const STATE_KIND = { ready: 'ok', 'no key': 'warn', 'key invalid': 'bad', 'no such provider': 'bad' };
+
+function targetNode(t, selectedTarget, lock) {
+  const anthropic = t.key === 'anthropic';
+  const flags = { 'is-selected': t.key === selectedTarget, 'is-related': t.key === related, 'is-live': t.live };
+  const mark = STATE_KIND[t.state]
+    ? badge(STATE_KIND[t.state], t.state)
+    : el('span', { class: 'muted small', text: t.state });
+  return el('div', { class: classes('node target', flags), 'data-target': t.key },
+    el('div', { class: 'node-head' },
+      el('button', {
+        type: 'button', class: 'pick wrap', 'data-key': `target:${t.key}:select`,
+        'aria-pressed': String(flags['is-related']), onclick: () => relate(t.key),
+        text: anthropic ? 'Anthropic' : `${t.provider} · ${t.model}`,
+      }),
+      mark),
+    t.state === 'no key'
+      ? el('div', { class: 'row-actions' },
+        button(`target:${t.key}:key`, 'Set key', () => openKey(t.provider), lock.keys))
+      : null);
+}
+
+function renderGraph(g, lock) {
+  const at = g.sources.findIndex((s) => s.name === selected);
+  const selectedTarget = at >= 0 ? g.targets[g.edge[at]].key : null;
+  $('sources').replaceChildren(...g.sources.map((s) => sourceNode(s, lock)));
+  $('targets').replaceChildren(...g.targets.map((t) => targetNode(t, selectedTarget, lock)));
+  const routes = g.sources.length - 1;
+  $('routes-count').textContent = routes || '';
+  const noProvider = sorted(state.config.providers).length === 0;
+  const add = $('add-route');
+  const why = lock.config || (noProvider ? 'add a provider first' : '');
+  add.disabled = Boolean(why);
+  add.title = why;
+  $('add-route-why').hidden = !noProvider;
+  $('add-route-why').textContent = noProvider ? 'Add a provider first: a route sends requests to one.' : '';
+
+  const svg = $('edges');
+  drawEdges(svg, g);
+  paintEdges(svg, g, selected, related);
+  layoutEdges($('graph'), svg, $('hub'), g);
+}
 function renderProviders(lock) {
   const providers = state.config.providers;
   const names = sorted(providers);
@@ -393,10 +457,11 @@ function renderRecent() {
 }
 
 async function copy(text, btn) {
+  const label = btn.textContent;
   try {
     await navigator.clipboard.writeText(text);
     btn.textContent = 'Copied';
-    setTimeout(() => { btn.textContent = 'Copy'; }, COPIED_MS);
+    setTimeout(() => { btn.textContent = label; }, COPIED_MS);
   } catch {
     notify('Copying failed; select the model ID and copy it by hand.', 'warn');
   }
@@ -614,6 +679,7 @@ function wire() {
   $('reload').addEventListener('click', reload);
   $('add-provider').addEventListener('click', () => openProvider(null));
   $('add-route').addEventListener('click', () => openRoute(null));
+  new ResizeObserver(() => layoutEdges($('graph'), $('edges'), $('hub'), graph)).observe($('graph'));
   $('route-name').addEventListener('input', showRouteHints);
   $('route-provider').addEventListener('change', showRouteHints);
   for (const b of document.querySelectorAll('[data-close]')) {
